@@ -131,7 +131,7 @@ export function OsInstallerApp() {
   const installComplete = installing && logCount >= INSTALL_LOGS.length;
 
   const handleDownloadNoUsbScript = () => {
-    const blob = new Blob([noUsbWindowsPs1], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([noUsbWindowsPs1], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -141,7 +141,7 @@ export function OsInstallerApp() {
   };
 
   const handleDownloadDoubleClickBat = () => {
-    const blob = new Blob([doubleClickWindowsBat], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([doubleClickWindowsBat], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -210,7 +210,7 @@ export function OsInstallerApp() {
                   Switch from Windows to AetherOS — Without a Pendrive
                 </h1>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  Download both files into one folder and simply double-click <span className="font-mono text-slate-700 dark:text-slate-200">Install-AetherOS-DoubleClick.bat</span> — Windows auto-prompts UAC Admin and starts setup immediately.
+                  All-in-one setup: just place <span className="font-mono text-slate-700 dark:text-slate-200">Install-AetherOS-DoubleClick.bat</span> next to your <span className="font-mono text-slate-700 dark:text-slate-200">aetheros-1.0-lts-x86_64.iso</span> and double-click — no separate .ps1 needed.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -220,7 +220,7 @@ export function OsInstallerApp() {
                   className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500 whitespace-nowrap"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  <span>Download Double-Click Setup (.bat)</span>
+                  <span>Download All-in-One Setup (.bat)</span>
                 </button>
                 <button
                   type="button"
@@ -228,7 +228,7 @@ export function OsInstallerApp() {
                   className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  <span>Download Engine (.ps1)</span>
+                  <span>Standalone PowerShell (.ps1)</span>
                 </button>
               </div>
             </div>
