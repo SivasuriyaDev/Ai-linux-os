@@ -575,6 +575,130 @@ export function moveNode(
   );
 }
 
+export function createTextFile(
+  nodes: FsNode[],
+  parentId: string,
+  baseName = 'New Text Document.txt'
+): { nodes: FsNode[]; created: FsNode } {
+  const existingNames = new Set(
+    nodes.filter((n) => n.parentId === parentId).map((n) => n.name.toLowerCase())
+  );
+  const dotIdx = baseName.lastIndexOf('.');
+  const stem = dotIdx > 0 ? baseName.slice(0, dotIdx) : baseName;
+  const ext = dotIdx > 0 ? baseName.slice(dotIdx) : '';
+
+  let finalName = baseName;
+  let counter = 2;
+  while (existingNames.has(finalName.toLowerCase())) {
+    finalName = `${stem} (${counter})${ext}`;
+    counter++;
+  }
+
+  const created: FsNode = {
+    id: `doc-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    name: finalName,
+    parentId,
+    kind: 'document',
+    sizeBytes: 128,
+    modifiedAt: 'Just now',
+    content: `${finalName}\nCreated via AetherOS Explorer.`,
+  };
+  return { nodes: [...nodes, created], created };
+}
+
+function deduplicateCopyName(existingNames: Set<string>, originalName: string): string {
+  if (!existingNames.has(originalName.toLowerCase())) return originalName;
+  const dotIdx = originalName.lastIndexOf('.');
+  const hasExt = dotIdx > 0 && dotIdx < originalName.length - 1;
+  const stem = hasExt ? originalName.slice(0, dotIdx) : originalName;
+  const ext = hasExt ? originalName.slice(dotIdx) : '';
+
+  let candidate = `${stem} - Copy${ext}`;
+  let counter = 2;
+  while (existingNames.has(candidate.toLowerCase())) {
+    candidate = `${stem} - Copy (${counter})${ext}`;
+    counter++;
+  }
+  return candidate;
+}
+
+export function pasteNodes(
+  nodes: FsNode[],
+  sourceIds: string[],
+  targetFolderId: string,
+  mode: 'copy' | 'cut'
+): { nodes: FsNode[]; pastedCount: number } {
+  const target = nodes.find((n) => n.id === targetFolderId && n.kind === 'folder');
+  if (!target || sourceIds.length === 0) {
+    return { nodes, pastedCount: 0 };
+  }
+
+  if (mode === 'cut') {
+    let next = nodes;
+    let moved = 0;
+    for (const id of sourceIds) {
+      const src = next.find((n) => n.id === id);
+      if (!src || src.parentId === targetFolderId) continue;
+      const updated = moveNode(next, id, targetFolderId);
+      if (updated !== next) {
+        next = updated;
+        moved++;
+      }
+    }
+    return { nodes: next, pastedCount: moved };
+  }
+
+  // Deep copy mode (clones files and nested folder trees recursively)
+  const existingNames = new Set(
+    nodes.filter((n) => n.parentId === targetFolderId).map((n) => n.name.toLowerCase())
+  );
+  const additions: FsNode[] = [];
+  let pastedCount = 0;
+  let seq = 0;
+
+  const cloneRecursive = (src: FsNode, newParentId: string, isTopLevel: boolean) => {
+    seq++;
+    const newId = `copy-${Date.now()}-${seq}-${Math.floor(Math.random() * 10000)}`;
+    const newName = isTopLevel
+      ? deduplicateCopyName(existingNames, src.name)
+      : src.name;
+    if (isTopLevel) {
+      existingNames.add(newName.toLowerCase());
+    }
+    const cloned: FsNode = {
+      ...src,
+      id: newId,
+      parentId: newParentId,
+      name: newName,
+      modifiedAt: 'Just now',
+    };
+    additions.push(cloned);
+    if (src.kind === 'folder') {
+      const children = nodes.filter((n) => n.parentId === src.id);
+      for (const child of children) {
+        cloneRecursive(child, newId, false);
+      }
+    }
+  };
+
+  for (const id of sourceIds) {
+    const src = nodes.find((n) => n.id === id);
+    if (!src) continue;
+    // Prevent copying a folder into itself or its own descendant
+    if (src.kind === 'folder') {
+      const crumbs = getBreadcrumbs(nodes, targetFolderId);
+      if (crumbs.some((c) => c.id === src.id)) continue;
+    }
+    cloneRecursive(src, targetFolderId, true);
+    pastedCount++;
+  }
+
+  return {
+    nodes: [...nodes, ...additions],
+    pastedCount,
+  };
+}
+
 export function extractZipArchive(
   nodes: FsNode[],
   zipNodeId: string

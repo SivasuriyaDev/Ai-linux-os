@@ -5,6 +5,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ClipboardPaste,
+  FilePlus,
   FolderPlus,
   ImagePlus,
   Laptop,
@@ -27,7 +29,10 @@ import { WallpaperBackdrop } from './components/WallpaperBackdrop';
 import { WindowFrame } from './components/WindowFrame';
 import { AdobeCompatApp } from './components/apps/AdobeCompatApp';
 import { AppManagerApp } from './components/apps/AppManagerApp';
-import { FileManagerApp } from './components/apps/FileManagerApp';
+import {
+  FileManagerApp,
+  type FileClipboardState,
+} from './components/apps/FileManagerApp';
 import { FontManagerApp } from './components/apps/FontManagerApp';
 import { OsInstallerApp } from './components/apps/OsInstallerApp';
 import { OsStudioApp } from './components/apps/OsStudioApp';
@@ -61,10 +66,12 @@ import {
   INITIAL_FS_NODES,
   INITIAL_STORAGE_VOLUMES,
   createFolder,
+  createTextFile,
   deleteNode,
   extractZipArchive,
   mountNewStorageVolume,
   moveNode,
+  pasteNodes,
   renameNode,
 } from './os/fileSystem';
 import {
@@ -250,6 +257,7 @@ export default function App() {
   // Core OS subsystem state
   const [files, setFiles] = useState<FsNode[]>(INITIAL_FS_NODES);
   const [volumes, setVolumes] = useState<StorageVolume[]>(INITIAL_STORAGE_VOLUMES);
+  const [fileClipboard, setFileClipboard] = useState<FileClipboardState | null>(null);
   const [fileManagerFolder, setFileManagerFolder] = useState<string>('this-pc');
   const [prefixes, setPrefixes] = useState<WinePrefix[]>(INITIAL_WINE_PREFIXES);
   const [packages, setPackages] = useState<SoftwarePackage[]>(INITIAL_PACKAGES);
@@ -752,6 +760,28 @@ export default function App() {
     );
   };
 
+  const handlePasteFiles = (targetFolderId: string): number => {
+    if (!fileClipboard || fileClipboard.nodeIds.length === 0) return 0;
+    const res = pasteNodes(
+      files,
+      fileClipboard.nodeIds,
+      targetFolderId,
+      fileClipboard.mode
+    );
+    setFiles(res.nodes);
+    if (fileClipboard.mode === 'cut') {
+      setFileClipboard(null);
+    }
+    if (res.pastedCount > 0) {
+      pushNotification(
+        fileClipboard.mode === 'cut' ? 'Moved Files' : 'Pasted Files',
+        `${fileClipboard.mode === 'cut' ? 'Moved' : 'Copied'} ${res.pastedCount} item${res.pastedCount === 1 ? '' : 's'} cleanly.`,
+        'Files'
+      );
+    }
+    return res.pastedCount;
+  };
+
   const handleOpenFileFromStart = (node: FsNode) => {
     if (node.parentId) setFileManagerFolder(node.parentId);
     handleLaunchApp('file-manager');
@@ -889,10 +919,24 @@ export default function App() {
               <FileManagerApp
                 nodes={files}
                 volumes={volumes}
+                fileClipboard={fileClipboard}
                 initialFolderId={fileManagerFolder}
                 activePrefixCount={prefixes.length}
                 onCreateFolder={(parentId, name) =>
                   setFiles((prev) => createFolder(prev, parentId, name).nodes)
+                }
+                onCreateTextFile={(parentId) =>
+                  setFiles((prev) => createTextFile(prev, parentId).nodes)
+                }
+                onCopyNodes={(nodeIds) =>
+                  setFileClipboard({ mode: 'copy', nodeIds })
+                }
+                onCutNodes={(nodeIds) =>
+                  setFileClipboard({ mode: 'cut', nodeIds })
+                }
+                onPasteNodes={handlePasteFiles}
+                onCopyPath={(pathText) =>
+                  handleCopyToClipboard(pathText, 'Files Explorer')
                 }
                 onRenameNode={(nodeId, name) =>
                   setFiles((prev) => renameNode(prev, nodeId, name))
@@ -1045,8 +1089,8 @@ export default function App() {
             role="menu"
             aria-label="Desktop Context Menu"
             style={{
-              left: `${Math.min(contextMenu.x, viewport.width - 248)}px`,
-              top: `${Math.min(contextMenu.y, viewport.height - 340)}px`,
+              left: `${Math.min(contextMenu.x, viewport.width - 252)}px`,
+              top: `${Math.min(contextMenu.y, viewport.height - 410)}px`,
             }}
             className="acrylic-panel fixed z-50 w-60 rounded-xl border border-slate-300/80 bg-white/95 p-1.5 text-xs text-slate-900 shadow-2xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-100"
           >
@@ -1061,6 +1105,64 @@ export default function App() {
               </span>
               <span className="font-mono text-[10px] text-slate-400">F5</span>
             </button>
+
+            <button
+              type="button"
+              disabled={!fileClipboard || fileClipboard.nodeIds.length === 0}
+              onClick={() => {
+                handlePasteFiles('documents');
+                setFileManagerFolder('documents');
+                handleLaunchApp('file-manager');
+              }}
+              className={`flex w-full items-center justify-between gap-2.5 rounded-lg px-2.5 py-2 text-left ${
+                fileClipboard && fileClipboard.nodeIds.length > 0
+                  ? 'font-medium hover:bg-slate-200/75 dark:hover:bg-slate-800'
+                  : 'cursor-not-allowed opacity-45'
+              }`}
+            >
+              <span className="flex items-center gap-2.5">
+                <ClipboardPaste className="h-3.5 w-3.5 text-sky-500" />
+                <span>
+                  Paste
+                  {fileClipboard && fileClipboard.nodeIds.length > 0
+                    ? ` (${fileClipboard.nodeIds.length} to Docs)`
+                    : ''}
+                </span>
+              </span>
+              <span className="font-mono text-[10px] text-slate-400">Ctrl+V</span>
+            </button>
+
+            <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+
+            <button
+              type="button"
+              onClick={() => {
+                const { nodes } = createFolder(files, 'documents', 'New Folder');
+                setFiles(nodes);
+                setFileManagerFolder('documents');
+                handleLaunchApp('file-manager');
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+            >
+              <FolderPlus className="h-3.5 w-3.5 text-amber-500" />
+              <span>New Folder</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const { nodes } = createTextFile(files, 'documents');
+                setFiles(nodes);
+                setFileManagerFolder('documents');
+                handleLaunchApp('file-manager');
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+            >
+              <FilePlus className="h-3.5 w-3.5 text-sky-500" />
+              <span>New Text Document (.txt)</span>
+            </button>
+
+            <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
 
             <button
               type="button"
@@ -1105,20 +1207,6 @@ export default function App() {
             >
               <RefreshCw className="h-3.5 w-3.5" />
               <span>Arrange Desktop Icons</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                const { nodes } = createFolder(files, 'documents', 'New Project');
-                setFiles(nodes);
-                setFileManagerFolder('documents');
-                handleLaunchApp('file-manager');
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-              <span>New Folder in Documents</span>
             </button>
 
             <div className="my-1 border-t border-slate-200 dark:border-slate-800" />

@@ -7,6 +7,7 @@ import {
   computeVolumeFreeGb,
   computeVolumeUsedPercent,
   createFolder,
+  createTextFile,
   deleteNode,
   extractZipArchive,
   getBreadcrumbs,
@@ -16,6 +17,7 @@ import {
   mountNewStorageVolume,
   moveNode,
   parseFontFamilyFromFilename,
+  pasteNodes,
   renameNode,
   searchFiles,
 } from './fileSystem';
@@ -100,4 +102,40 @@ test('Windows-style storage volumes expose C:/D:/E:/F:/Z: and auto-assign next d
   });
   assert.equal(secondMount.created.letter, 'H:');
   assert.equal(secondMount.volumes.length, INITIAL_STORAGE_VOLUMES.length + 2);
+});
+
+test('Windows-style Copy, Cut, Paste, and New Text Document work recursively and deduplicate names', () => {
+  const txt1 = createTextFile(INITIAL_FS_NODES, 'documents');
+  assert.equal(txt1.created.name, 'New Text Document.txt');
+  const txt2 = createTextFile(txt1.nodes, 'documents');
+  assert.equal(txt2.created.name, 'New Text Document (2).txt');
+
+  // Copy a file into the same folder -> "- Copy" suffix
+  const copiedSame = pasteNodes(txt2.nodes, [txt1.created.id], 'documents', 'copy');
+  assert.equal(copiedSame.pastedCount, 1);
+  assert.ok(
+    getChildren(copiedSame.nodes, 'documents').some(
+      (n) => n.name === 'New Text Document - Copy.txt'
+    )
+  );
+
+  // Deep-copy a folder with child font files into documents
+  const copiedFolder = pasteNodes(copiedSame.nodes, ['dl-fonts-folder'], 'documents', 'copy');
+  assert.equal(copiedFolder.pastedCount, 1);
+  const clonedFolder = getChildren(copiedFolder.nodes, 'documents').find(
+    (n) => n.name === 'Creative_Fonts_Pack'
+  );
+  assert.ok(clonedFolder);
+  assert.equal(getChildren(copiedFolder.nodes, clonedFolder.id).length, 5);
+
+  // Cut a file from documents to pictures
+  const cutMoved = pasteNodes(copiedFolder.nodes, [txt2.created.id], 'pictures', 'cut');
+  assert.equal(cutMoved.pastedCount, 1);
+  assert.ok(
+    getChildren(cutMoved.nodes, 'pictures').some((n) => n.id === txt2.created.id)
+  );
+  assert.equal(
+    getChildren(cutMoved.nodes, 'documents').some((n) => n.id === txt2.created.id),
+    false
+  );
 });

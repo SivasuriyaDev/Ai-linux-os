@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Archive,
   Box,
   CheckCircle2,
   CheckSquare,
   ChevronRight,
+  ClipboardPaste,
   Clock,
+  Copy,
   Download,
   FileCode,
+  FilePlus,
   FileText,
   Film,
   Folder,
@@ -21,6 +25,8 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
+  Scissors,
   Search,
   Square,
   Star,
@@ -44,12 +50,23 @@ import {
 } from '../../os/fileSystem';
 import type { ExeInstallRequest, FsNode, StorageVolume } from '../../os/types';
 
+export interface FileClipboardState {
+  mode: 'copy' | 'cut';
+  nodeIds: string[];
+}
+
 interface FileManagerAppProps {
   nodes: FsNode[];
   volumes: StorageVolume[];
+  fileClipboard: FileClipboardState | null;
   initialFolderId?: string;
   activePrefixCount: number;
   onCreateFolder: (parentId: string, name: string) => void;
+  onCreateTextFile: (parentId: string) => void;
+  onCopyNodes: (nodeIds: string[]) => void;
+  onCutNodes: (nodeIds: string[]) => void;
+  onPasteNodes: (targetFolderId: string) => number;
+  onCopyPath?: (pathText: string) => void;
   onRenameNode: (nodeId: string, newName: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onDeleteNodes: (nodeIds: string[]) => void;
@@ -124,9 +141,15 @@ function mapKindToInstallerFormat(kind: FsNode['kind']): ExeInstallRequest['form
 export function FileManagerApp({
   nodes,
   volumes,
+  fileClipboard,
   initialFolderId = 'this-pc',
   activePrefixCount,
   onCreateFolder,
+  onCreateTextFile,
+  onCopyNodes,
+  onCutNodes,
+  onPasteNodes,
+  onCopyPath,
   onRenameNode,
   onDeleteNode,
   onDeleteNodes,
@@ -154,10 +177,11 @@ export function FileManagerApp({
   const [newDriveLabel, setNewDriveLabel] = useState('Media Disk');
   const [newDriveFs, setNewDriveFs] = useState<StorageVolume['filesystem']>('NTFS');
   const [newDriveGb, setNewDriveGb] = useState(500);
+  const [folderRefreshing, setFolderRefreshing] = useState(false);
   const [fileContextMenu, setFileContextMenu] = useState<{
     x: number;
     y: number;
-    node: FsNode;
+    node: FsNode | null;
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -296,6 +320,20 @@ export function FileManagerApp({
     setSelectedIds([node.id]);
   };
 
+  useEffect(() => {
+    if (!fileContextMenu) return;
+    const handleDismiss = () => setFileContextMenu(null);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFileContextMenu(null);
+    };
+    window.addEventListener('click', handleDismiss);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('click', handleDismiss);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [fileContextMenu]);
+
   const handleRowContextMenu = (e: React.MouseEvent, node: FsNode) => {
     e.preventDefault();
     e.stopPropagation();
@@ -303,10 +341,111 @@ export function FileManagerApp({
       setSelectedIds([node.id]);
     }
     setFileContextMenu({
-      x: Math.min(e.clientX, window.innerWidth - 260),
-      y: Math.min(e.clientY, window.innerHeight - 240),
+      x: Math.max(12, Math.min(e.clientX, window.innerWidth - 272)),
+      y: Math.max(12, Math.min(e.clientY, window.innerHeight - 430)),
       node,
     });
+  };
+
+  const handleEmptyFolderContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setFileContextMenu({
+      x: Math.max(12, Math.min(e.clientX, window.innerWidth - 272)),
+      y: Math.max(12, Math.min(e.clientY, window.innerHeight - 320)),
+      node: null,
+    });
+  };
+
+  const triggerRefreshFolder = () => {
+    setFileContextMenu(null);
+    setFolderRefreshing(true);
+    window.setTimeout(() => setFolderRefreshing(false), 160);
+  };
+
+  const triggerCopySelection = (ids?: string[]) => {
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    if (targetIds.length === 0) return;
+    onCopyNodes(targetIds);
+    setBannerMsg(
+      `Copied ${targetIds.length} item${targetIds.length === 1 ? '' : 's'} — right-click or press Ctrl+V in any folder to Paste.`
+    );
+    setFileContextMenu(null);
+  };
+
+  const triggerCutSelection = (ids?: string[]) => {
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    if (targetIds.length === 0) return;
+    onCutNodes(targetIds);
+    setBannerMsg(
+      `Cut ${targetIds.length} item${targetIds.length === 1 ? '' : 's'} — right-click or press Ctrl+V in destination folder to move.`
+    );
+    setFileContextMenu(null);
+  };
+
+  const triggerPasteHere = (destinationId?: string) => {
+    const targetFolder =
+      destinationId ?? (currentFolderId === 'recent' || currentFolderId === 'this-pc' ? 'documents' : currentFolderId);
+    const pasted = onPasteNodes(targetFolder);
+    if (pasted > 0) {
+      setBannerMsg(
+        `Pasted ${pasted} item${pasted === 1 ? '' : 's'} into ${getTabTitle(targetFolder)}.`
+      );
+    }
+    setFileContextMenu(null);
+  };
+
+  const triggerNewTextDocHere = () => {
+    const targetFolder =
+      currentFolderId === 'recent' || currentFolderId === 'this-pc' ? 'documents' : currentFolderId;
+    onCreateTextFile(targetFolder);
+    setBannerMsg(`Created New Text Document in ${getTabTitle(targetFolder)}.`);
+    setFileContextMenu(null);
+  };
+
+  const handleExplorerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+      if (selectedIds.length > 0) {
+        e.preventDefault();
+        triggerCopySelection();
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')) {
+      if (selectedIds.length > 0) {
+        e.preventDefault();
+        triggerCutSelection();
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+      if (fileClipboard && fileClipboard.nodeIds.length > 0 && !isThisPcView && currentFolderId !== 'recent') {
+        e.preventDefault();
+        triggerPasteHere();
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+      if (!isThisPcView && visibleItems.length > 0) {
+        e.preventDefault();
+        setSelectedIds(visibleItems.map((i) => i.id));
+      }
+      return;
+    }
+    if (e.key === 'F2' && primarySelectedNode) {
+      e.preventDefault();
+      setRenamingId(primarySelectedNode.id);
+      setRenameValue(primarySelectedNode.name);
+      return;
+    }
+    if (e.key === 'Delete' && selectedIds.length > 0) {
+      e.preventDefault();
+      onDeleteNodes(selectedIds);
+      setSelectedIds([]);
+    }
   };
 
   const handleToggleSelectAll = () => {
@@ -361,8 +500,10 @@ export function FileManagerApp({
 
   return (
     <div
+      tabIndex={0}
+      onKeyDown={handleExplorerKeyDown}
       onClick={() => setFileContextMenu(null)}
-      className="relative flex h-full flex-col bg-slate-50/70 text-slate-900 dark:bg-slate-950/60 dark:text-slate-100"
+      className="relative flex h-full flex-col bg-slate-50/70 text-slate-900 focus:outline-none dark:bg-slate-950/60 dark:text-slate-100"
     >
       {/* Multi-Tab Bar */}
       <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-100/80 px-3 pt-2 dark:border-slate-800 dark:bg-slate-900/70">
@@ -455,6 +596,17 @@ export function FileManagerApp({
             className="hidden"
             aria-label="Import local files into File Manager"
           />
+          {!isThisPcView && currentFolderId !== 'recent' && fileClipboard && fileClipboard.nodeIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => triggerPasteHere()}
+              className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 whitespace-nowrap shrink-0"
+            >
+              <ClipboardPaste className="h-3.5 w-3.5" />
+              <span>Paste ({fileClipboard.nodeIds.length})</span>
+            </button>
+          )}
+
           {!isThisPcView && (
             <button
               type="button"
@@ -876,14 +1028,22 @@ export function FileManagerApp({
             </form>
           )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-200/60 dark:divide-slate-800/70">
+          <div
+            data-testid="file-list-dropzone"
+            onContextMenu={handleEmptyFolderContextMenu}
+            className={`min-h-0 flex-1 overflow-y-auto divide-y divide-slate-200/60 transition-opacity duration-150 dark:divide-slate-800/70 ${
+              folderRefreshing ? 'opacity-20' : 'opacity-100'
+            }`}
+          >
             {visibleItems.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
-                This folder is empty. Click &quot;Add Files&quot; above to drop fonts or installers.
+                This folder is empty. Right-click here to create a New Folder, New Text Document, or Paste copied files.
               </div>
             ) : (
               visibleItems.map((node) => {
                 const selected = selectedIds.includes(node.id);
+                const isCutPending =
+                  fileClipboard?.mode === 'cut' && fileClipboard.nodeIds.includes(node.id);
                 return (
                   <div
                     key={node.id}
@@ -900,6 +1060,8 @@ export function FileManagerApp({
                     }}
                     onContextMenu={(e) => handleRowContextMenu(e, node)}
                     className={`flex items-center gap-2 px-3 py-2.5 transition-colors ${
+                      isCutPending ? 'opacity-55' : ''
+                    } ${
                       selected
                         ? 'bg-sky-500/12 dark:bg-sky-500/15'
                         : 'hover:bg-slate-100/80 dark:hover:bg-slate-900/70'
@@ -1159,92 +1321,335 @@ export function FileManagerApp({
         )}
       </div>
 
-      {/* Windows-Style File Right-Click Context Menu */}
-      {fileContextMenu && (
-        <div
-          role="menu"
-          aria-label="File Context Menu"
-          style={{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }}
-          onClick={(e) => e.stopPropagation()}
-          className="acrylic-panel fixed z-[82] w-60 rounded-xl border border-slate-300/80 bg-white/95 p-1.5 text-xs text-slate-900 shadow-2xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-100"
-        >
-          {selectedFontNodes.length > 0 && (
-            <button
-              type="button"
-              onClick={() => triggerInstallFonts(selectedFontNodes)}
-              className="flex w-full items-center gap-2 rounded-lg bg-sky-600/12 px-2.5 py-2 text-left font-semibold text-sky-700 hover:bg-sky-600/20 dark:text-sky-300"
-            >
-              <Type className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Install {selectedFontNodes.length > 1 ? `All ${selectedFontNodes.length} Fonts` : 'Font'} (Linux + Adobe)
-              </span>
-            </button>
-          )}
-
-          {isInstallablePackageKind(fileContextMenu.node.kind) && (
-            <button
-              type="button"
-              onClick={() => handleOpenNode(fileContextMenu.node)}
-              className="flex w-full items-center gap-2 rounded-lg bg-sky-600/12 px-2.5 py-2 text-left font-semibold text-sky-700 hover:bg-sky-600/20 dark:text-sky-300"
-            >
-              <Download className="h-3.5 w-3.5 shrink-0" />
-              <span>1-Click Express Install</span>
-            </button>
-          )}
-
-          {fileContextMenu.node.kind === 'zip' && (
-            <button
-              type="button"
-              onClick={() => handleOpenNode(fileContextMenu.node)}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
-            >
-              <Archive className="h-3.5 w-3.5 shrink-0" />
-              <span>Extract Here</span>
-            </button>
-          )}
-
-          {fileContextMenu.node.kind === 'folder' && (
-            <button
-              type="button"
-              onClick={() => handleOpenNode(fileContextMenu.node)}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
-            >
-              <Folder className="h-3.5 w-3.5 shrink-0" />
-              <span>Open Folder</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              setRenamingId(fileContextMenu.node.id);
-              setRenameValue(fileContextMenu.node.name);
-              setFileContextMenu(null);
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+      {/* Windows 11-Style File & Folder Right-Click Context Menu (Portaled to body to escape WindowFrame overflow/backdrop-filter) */}
+      {fileContextMenu &&
+        createPortal(
+          <div
+            role="menu"
+            aria-label={fileContextMenu.node ? 'File Context Menu' : 'Folder Context Menu'}
+            style={{ left: `${fileContextMenu.x}px`, top: `${fileContextMenu.y}px` }}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+            className="acrylic-panel fixed z-[95] w-64 rounded-xl border border-slate-300/80 bg-white/95 p-1.5 text-xs text-slate-900 shadow-2xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-100"
           >
-            <Pencil className="h-3.5 w-3.5 shrink-0" />
-            <span>Rename</span>
-          </button>
+            {fileContextMenu.node ? (
+              <>
+                {selectedFontNodes.length > 0 && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => triggerInstallFonts(selectedFontNodes)}
+                    className="flex w-full items-center gap-2 rounded-lg bg-sky-600/12 px-2.5 py-2 text-left font-semibold text-sky-700 hover:bg-sky-600/20 dark:text-sky-300"
+                  >
+                    <Type className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      Install {selectedFontNodes.length > 1 ? `All ${selectedFontNodes.length} Fonts` : 'Font'} (Linux + Adobe)
+                    </span>
+                  </button>
+                )}
 
-          <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+                {isInstallablePackageKind(fileContextMenu.node.kind) && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleOpenNode(fileContextMenu.node!)}
+                    className="flex w-full items-center gap-2 rounded-lg bg-sky-600/12 px-2.5 py-2 text-left font-semibold text-sky-700 hover:bg-sky-600/20 dark:text-sky-300"
+                  >
+                    <Download className="h-3.5 w-3.5 shrink-0" />
+                    <span>1-Click Express Install</span>
+                  </button>
+                )}
 
-          <button
-            type="button"
-            onClick={() => {
-              onDeleteNodes(selectedIds.length > 0 ? selectedIds : [fileContextMenu.node.id]);
-              setSelectedIds([]);
-              setFileContextMenu(null);
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/50"
-          >
-            <Trash2 className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              Delete {selectedIds.length > 1 ? `(${selectedIds.length} items)` : ''}
-            </span>
-          </button>
-        </div>
-      )}
+                {fileContextMenu.node.kind === 'zip' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleOpenNode(fileContextMenu.node!)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                  >
+                    <Archive className="h-3.5 w-3.5 shrink-0" />
+                    <span>Extract Here</span>
+                  </button>
+                )}
+
+                {fileContextMenu.node.kind === 'folder' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleOpenNode(fileContextMenu.node!)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left font-medium hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                  >
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span>Open</span>
+                  </button>
+                )}
+
+                {(selectedFontNodes.length > 0 ||
+                  isInstallablePackageKind(fileContextMenu.node.kind) ||
+                  fileContextMenu.node.kind === 'zip' ||
+                  fileContextMenu.node.kind === 'folder') && (
+                  <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+                )}
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() =>
+                    triggerCutSelection(
+                      selectedIds.length > 0 ? selectedIds : [fileContextMenu.node!.id]
+                    )
+                  }
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                >
+                  <span className="flex items-center gap-2">
+                    <Scissors className="h-3.5 w-3.5 shrink-0" />
+                    <span>Cut</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">Ctrl+X</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() =>
+                    triggerCopySelection(
+                      selectedIds.length > 0 ? selectedIds : [fileContextMenu.node!.id]
+                    )
+                  }
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                >
+                  <span className="flex items-center gap-2">
+                    <Copy className="h-3.5 w-3.5 shrink-0" />
+                    <span>Copy</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">Ctrl+C</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!fileClipboard || fileClipboard.nodeIds.length === 0}
+                  onClick={() =>
+                    triggerPasteHere(
+                      fileContextMenu.node!.kind === 'folder'
+                        ? fileContextMenu.node!.id
+                        : undefined
+                    )
+                  }
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left ${
+                    fileClipboard && fileClipboard.nodeIds.length > 0
+                      ? 'hover:bg-slate-200/75 dark:hover:bg-slate-800'
+                      : 'cursor-not-allowed opacity-45'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <ClipboardPaste className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                    <span>
+                      {fileContextMenu.node.kind === 'folder' ? 'Paste into Folder' : 'Paste'}
+                      {fileClipboard && fileClipboard.nodeIds.length > 0
+                        ? ` (${fileClipboard.nodeIds.length})`
+                        : ''}
+                    </span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">Ctrl+V</span>
+                </button>
+
+                {onCopyPath && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      const trail = getBreadcrumbs(nodes, fileContextMenu.node!.id)
+                        .map((c) => c.name)
+                        .join(' / ');
+                      onCopyPath(trail);
+                      setBannerMsg(`Copied path: ${trail}`);
+                      setFileContextMenu(null);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                  >
+                    <FileCode className="h-3.5 w-3.5 shrink-0" />
+                    <span>Copy as Path</span>
+                  </button>
+                )}
+
+                <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+
+                {currentFolderId !== 'recent' && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setFileContextMenu(null);
+                        setCreatingFolder(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                    >
+                      <FolderPlus className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                      <span>New Folder</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={triggerNewTextDocHere}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                    >
+                      <FilePlus className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                      <span>New Text Document (.txt)</span>
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setRenamingId(fileContextMenu.node!.id);
+                    setRenameValue(fileContextMenu.node!.name);
+                    setFileContextMenu(null);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                >
+                  <span className="flex items-center gap-2">
+                    <Pencil className="h-3.5 w-3.5 shrink-0" />
+                    <span>Rename</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">F2</span>
+                </button>
+
+                <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onDeleteNodes(
+                      selectedIds.length > 0 ? selectedIds : [fileContextMenu.node!.id]
+                    );
+                    setSelectedIds([]);
+                    setFileContextMenu(null);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/50"
+                >
+                  <span className="flex items-center gap-2">
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      Delete {selectedIds.length > 1 ? `(${selectedIds.length} items)` : ''}
+                    </span>
+                  </span>
+                  <span className="font-mono text-[10px] opacity-70">Del</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={triggerRefreshFolder}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left font-medium hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                >
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                    <span>Refresh</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">F5</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={
+                    !fileClipboard ||
+                    fileClipboard.nodeIds.length === 0 ||
+                    currentFolderId === 'recent'
+                  }
+                  onClick={() => triggerPasteHere()}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left ${
+                    fileClipboard &&
+                    fileClipboard.nodeIds.length > 0 &&
+                    currentFolderId !== 'recent'
+                      ? 'font-medium hover:bg-slate-200/75 dark:hover:bg-slate-800'
+                      : 'cursor-not-allowed opacity-45'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <ClipboardPaste className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                    <span>
+                      Paste
+                      {fileClipboard && fileClipboard.nodeIds.length > 0
+                        ? ` (${fileClipboard.nodeIds.length} item${fileClipboard.nodeIds.length === 1 ? '' : 's'})`
+                        : ''}
+                    </span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">Ctrl+V</span>
+                </button>
+
+                <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+
+                {currentFolderId !== 'recent' && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setFileContextMenu(null);
+                        setCreatingFolder(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                    >
+                      <FolderPlus className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                      <span>New Folder</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={triggerNewTextDocHere}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                    >
+                      <FilePlus className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                      <span>New Text Document (.txt)</span>
+                    </button>
+                  </>
+                )}
+
+                <div className="my-1 border-t border-slate-200 dark:border-slate-800" />
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setSelectedIds(visibleItems.map((i) => i.id));
+                    setFileContextMenu(null);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                >
+                  <span className="flex items-center gap-2">
+                    <CheckSquare className="h-3.5 w-3.5 shrink-0" />
+                    <span>Select All</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">Ctrl+A</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setFileContextMenu(null);
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/75 dark:hover:bg-slate-800"
+                >
+                  <Upload className="h-3.5 w-3.5 shrink-0" />
+                  <span>Add Files from PC...</span>
+                </button>
+              </>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -14,7 +14,7 @@ on:
   push:
     paths:
       - 'os-src/**'
-      - 'aetheros-1.0-lts-source-bundle.sh'
+      - '*source-bundle*.sh'
       - '.github/workflows/build-aetheros-iso.yml'
     tags:
       - 'v*'
@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Free GitHub runner disk space for Debian rootfs + SquashFS
         run: |
@@ -53,17 +53,166 @@ jobs:
             shim-signed \
             grub-efi-amd64-signed
 
-      - name: Prepare AetherOS source tree
+      - name: Prepare AetherOS source tree (auto-detect or standalone bootstrap)
         id: prep
         run: |
-          if [[ -f "os-src/build/build-iso.sh" ]]; then
-            echo "BUILD_ROOT=os-src" >> "$GITHUB_OUTPUT"
-          elif [[ -f "aetheros-1.0-lts-source-bundle.sh" ]]; then
-            bash aetheros-1.0-lts-source-bundle.sh
+          set -euo pipefail
+          EXISTING_BUILD="$(find . -maxdepth 4 -type f -name 'build-iso.sh' ! -path './.git/*' | head -n 1 || true)"
+          EXISTING_BUNDLE="$(find . -maxdepth 3 -type f -name '*source-bundle*.sh' ! -path './.git/*' | head -n 1 || true)"
+
+          if [[ -n "${EXISTING_BUILD}" ]]; then
+            BUILD_DIR="$(dirname "${EXISTING_BUILD}")"
+            BUILD_ROOT="$(dirname "${BUILD_DIR}")"
+            echo "Found existing build-iso.sh in ${BUILD_ROOT}"
+            echo "BUILD_ROOT=${BUILD_ROOT}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${EXISTING_BUNDLE}" ]]; then
+            echo "Extracting uploaded bundle: ${EXISTING_BUNDLE}"
+            bash "${EXISTING_BUNDLE}"
             echo "BUILD_ROOT=aetheros-src" >> "$GITHUB_OUTPUT"
           else
-            echo "Error: Neither os-src/build/build-iso.sh nor aetheros-1.0-lts-source-bundle.sh found." >&2
-            exit 1
+            echo "No external os-src/ or bundle uploaded — bootstrapping standalone AetherOS builder inline..."
+            mkdir -p aetheros-src/build aetheros-src/installer aetheros-src/drivers aetheros-src/storage aetheros-src/security
+
+            cat <<'GRUB_EOF' > aetheros-src/build/grub.cfg
+          set default=0
+          set timeout=5
+          menuentry "AetherOS 1.0 LTS (Live Desktop & Installer)" {
+              linux /live/vmlinuz boot=live components quiet splash
+              initrd /live/initrd.img
+          }
+          menuentry "AetherOS 1.0 LTS (Safe Graphics Mode)" {
+              linux /live/vmlinuz boot=live components nomodeset
+              initrd /live/initrd.img
+          }
+          GRUB_EOF
+
+            cat <<'NFT_EOF' > aetheros-src/security/nftables.conf
+          #!/usr/sbin/nft -f
+          flush ruleset
+          table inet filter {
+              chain input {
+                  type filter hook input priority 0; policy drop;
+                  iif lo accept
+                  ct state established,related accept
+                  ip protocol icmp accept
+                  ip6 nexthdr icmpv6 accept
+              }
+              chain forward { type filter hook forward priority 0; policy drop; }
+              chain output { type filter hook output priority 0; policy accept; }
+          }
+          NFT_EOF
+
+            cat <<'BAT_EOF' > aetheros-src/installer/Install-AetherOS-DoubleClick.bat
+          @echo off
+          title AetherOS 1.0 LTS — Windows Double-Click Installer (No Pendrive)
+          net session >nul 2>&1
+          if %errorlevel% neq 0 (
+              powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+              exit /b
+          )
+          set "PS_ENGINE=%~dp0AetherOS-Windows-NoUSB-Installer.ps1"
+          if not exist "%PS_ENGINE%" (
+              echo Place AetherOS-Windows-NoUSB-Installer.ps1 in the same folder and double-click again.
+              pause
+              exit /b 1
+          )
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_ENGINE%"
+          pause
+          BAT_EOF
+
+            cat <<'PS1_EOF' > aetheros-src/installer/AetherOS-Windows-NoUSB-Installer.ps1
+          #Requires -RunAsAdministrator
+          param([int]$AllocateGB = 120, [switch]$ReplaceWindows)
+          $ErrorActionPreference = "Stop"
+          Write-Host "AetherOS 1.0 LTS — Windows No-Pendrive UEFI Stager" -ForegroundColor Cyan
+          if (-not (Test-Path "$env:SystemRoot\System32\bcdedit.exe")) { throw "bcdedit.exe required" }
+          powercfg /h off | Out-Null
+          Write-Host "Ready to stage AetherOS ISO into FAT32 UEFI boot partition (AllocateGB=$AllocateGB, ReplaceWindows=$ReplaceWindows)." -ForegroundColor Green
+          Write-Host "Place aetheros-1.0-lts-x86_64.iso in this folder and follow UEFI boot prompt."
+          PS1_EOF
+
+            cat <<'ISO_EOF' > aetheros-src/build/build-iso.sh
+          #!/usr/bin/env bash
+          set -euo pipefail
+          DISTRO_VERSION="1.0-lts"
+          DEBIAN_SUITE="bookworm"
+          ARCH="amd64"
+          WORK_DIR="${PWD}/work"
+          CHROOT_DIR="${WORK_DIR}/chroot"
+          ISO_DIR="${WORK_DIR}/iso"
+          OUTPUT_ISO="${PWD}/aetheros-${DISTRO_VERSION}-x86_64.iso"
+
+          cleanup() {
+            for mp in dev/pts dev proc sys; do
+              mountpoint -q "${CHROOT_DIR}/${mp}" 2>/dev/null && umount -lf "${CHROOT_DIR}/${mp}" || true
+            done
+          }
+          trap cleanup EXIT
+
+          rm -rf "${WORK_DIR}"
+          mkdir -p "${CHROOT_DIR}" "${ISO_DIR}/live" "${ISO_DIR}/boot/grub"
+
+          debootstrap --arch="${ARCH}" --variant=minbase \
+            --include=systemd,systemd-sysv,dbus,ca-certificates,gnupg,curl,locales,sudo \
+            "${DEBIAN_SUITE}" "${CHROOT_DIR}" http://deb.debian.org/debian/
+
+          cat > "${CHROOT_DIR}/etc/apt/sources.list" <<EOF
+          deb http://deb.debian.org/debian ${DEBIAN_SUITE} main contrib non-free non-free-firmware
+          deb http://security.debian.org/debian-security ${DEBIAN_SUITE}-security main contrib non-free non-free-firmware
+          deb http://deb.debian.org/debian ${DEBIAN_SUITE}-updates main contrib non-free non-free-firmware
+          deb http://deb.debian.org/debian ${DEBIAN_SUITE}-backports main contrib non-free non-free-firmware
+          EOF
+
+          mount --bind /dev "${CHROOT_DIR}/dev"
+          mount --bind /dev/pts "${CHROOT_DIR}/dev/pts"
+          mount -t proc proc "${CHROOT_DIR}/proc"
+          mount -t sysfs sysfs "${CHROOT_DIR}/sys"
+
+          chroot "${CHROOT_DIR}" /bin/bash -e <<'CHROOT_EOF'
+          export DEBIAN_FRONTEND=noninteractive
+          dpkg --add-architecture i386
+          apt-get update
+          apt-get install -y --no-install-recommends -t bookworm-backports linux-image-amd64 || \
+            apt-get install -y --no-install-recommends linux-image-amd64
+          apt-get install -y --no-install-recommends \
+            firmware-linux firmware-iwlwifi firmware-amd-graphics firmware-misc-nonfree \
+            live-boot initramfs-tools grub-efi-amd64-signed shim-signed grub-pc-bin \
+            plymouth plymouth-themes network-manager bluez pipewire pipewire-pulse \
+            pipewire-jack wireplumber zram-tools nftables apparmor apparmor-utils \
+            unattended-upgrades ntfs-3g cifs-utils fuse3 flatpak p7zip-full unzip \
+            cryptsetup parted dosfstools mesa-vulkan-drivers mesa-vulkan-drivers:i386 \
+            libvulkan1 libvulkan1:i386 vulkan-tools mesa-va-drivers \
+            intel-media-va-driver-non-free vainfo qt6-base-dev qt6-declarative-dev \
+            qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+            qml6-module-qtquick-window xwayland sddm python3 python3-pyqt6 \
+            fonts-noto-core fonts-liberation wine wine64 wine32:i386 winetricks cabextract
+          systemctl enable NetworkManager bluetooth nftables apparmor fstrim.timer zramswap || true
+          echo "PERCENT=50" > /etc/default/zramswap
+          echo "ALGO=lz4" >> /etc/default/zramswap
+          echo "aetheros" > /etc/hostname
+          id -u aether >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,video,audio,render,plugdev aether
+          echo "aether:aether" | chpasswd
+          echo "aether ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/aether-live
+          apt-get clean
+          rm -rf /var/lib/apt/lists/* /tmp/* /usr/share/doc/* /usr/share/man/*
+          CHROOT_EOF
+
+          [[ -f ../security/nftables.conf ]] && install -m 0644 ../security/nftables.conf "${CHROOT_DIR}/etc/nftables.conf"
+          VMLINUZ_PATH="$(ls -1t "${CHROOT_DIR}"/boot/vmlinuz-* | head -n 1)"
+          INITRD_PATH="$(ls -1t "${CHROOT_DIR}"/boot/initrd.img-* | head -n 1)"
+          cp -L "${VMLINUZ_PATH}" "${ISO_DIR}/live/vmlinuz"
+          cp -L "${INITRD_PATH}" "${ISO_DIR}/live/initrd.img"
+          cleanup
+
+          mksquashfs "${CHROOT_DIR}" "${ISO_DIR}/live/filesystem.squashfs" \
+            -comp zstd -Xcompression-level 6 -b 1M -no-exports -noappend
+          cp ./grub.cfg "${ISO_DIR}/boot/grub/grub.cfg"
+          grub-mkrescue -o "${OUTPUT_ISO}" "${ISO_DIR}" -- -volid "AETHEROS_1_0_LTS"
+          ls -lh "${OUTPUT_ISO}"
+          ISO_EOF
+            sed -i 's/^          //' aetheros-src/build/grub.cfg aetheros-src/security/nftables.conf aetheros-src/installer/Install-AetherOS-DoubleClick.bat aetheros-src/installer/AetherOS-Windows-NoUSB-Installer.ps1 aetheros-src/build/build-iso.sh
+            chmod +x aetheros-src/build/build-iso.sh
+            echo "BUILD_ROOT=aetheros-src" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Compile Bootable AetherOS ISO (Debian Bookworm Minimal + Linux LTS)
@@ -94,9 +243,10 @@ jobs:
           path: release-assets/*
           retention-days: 14
 
-      - name: Determine Release Tag
-        id: tag
+      - name: Publish Bootable ISO to GitHub Releases
         if: ${{ inputs.publish_release != false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ -n "${{ inputs.release_tag }}" ]]; then
             TAG="${{ inputs.release_tag }}"
@@ -105,19 +255,7 @@ jobs:
           else
             TAG="aetheros-1.0-lts-$(date +%Y%m%d-%H%M)"
           fi
-          echo "value=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish Bootable ISO to GitHub Releases
-        if: ${{ inputs.publish_release != false }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.value }}
-          name: "AetherOS 1.0 LTS (${{ steps.tag.outputs.value }})"
-          body: |
-            ## AetherOS 1.0 LTS — Automatic Cloud ISO Build
-
-            - **Base**: Debian 12 Bookworm Minimal + Backports Linux LTS Kernel (`x86_64`)
-            - **Boot Support**: Hybrid UEFI (Secure Boot `shim-signed`) + Legacy BIOS
-            - **No-Pendrive Windows Install**: Download `Install-AetherOS-DoubleClick.bat` + `AetherOS-Windows-NoUSB-Installer.ps1` into one folder and double-click the `.bat` file on Windows 10/11.
-            - **Verify Integrity**: Compare the downloaded ISO against `SHA256SUMS.txt`.
-          files: release-assets/*
+          gh release create "${TAG}" release-assets/* \
+            --title "AetherOS 1.0 LTS (${TAG})" \
+            --notes "Bootable Debian Bookworm Minimal + Linux LTS x86_64 ISO (UEFI Secure Boot + Legacy BIOS) with Wine/DXVK, Qt6, PipeWire, and Windows No-Pendrive Double-Click Setup (.bat + .ps1)."
