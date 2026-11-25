@@ -15,6 +15,7 @@ import {
   HardDrive,
   Home,
   Image,
+  Monitor,
   Network,
   Package,
   Pencil,
@@ -26,10 +27,13 @@ import {
   Trash2,
   Type,
   Upload,
+  Usb,
   X,
 } from 'lucide-react';
 import {
   classifyUploadedFile,
+  computeVolumeFreeGb,
+  computeVolumeUsedPercent,
   formatBytes,
   getBreadcrumbs,
   getChildren,
@@ -38,10 +42,11 @@ import {
   parseFontFamilyFromFilename,
   searchFiles,
 } from '../../os/fileSystem';
-import type { ExeInstallRequest, FsNode } from '../../os/types';
+import type { ExeInstallRequest, FsNode, StorageVolume } from '../../os/types';
 
 interface FileManagerAppProps {
   nodes: FsNode[];
+  volumes: StorageVolume[];
   initialFolderId?: string;
   activePrefixCount: number;
   onCreateFolder: (parentId: string, name: string) => void;
@@ -58,6 +63,13 @@ interface FileManagerAppProps {
     parentId: string,
     imported: { name: string; kind: FsNode['kind']; sizeBytes: number; content: string }[]
   ) => void;
+  onMountVolume: (options: {
+    label: string;
+    filesystem?: StorageVolume['filesystem'];
+    kind?: StorageVolume['kind'];
+    totalGb?: number;
+    usedGb?: number;
+  }) => void;
   onOpenFontManager: () => void;
 }
 
@@ -67,17 +79,13 @@ interface ExplorerTab {
 }
 
 const SIDEBAR_LOCATIONS = [
+  { id: 'this-pc', label: 'This PC (All Drives)', icon: Monitor },
   { id: 'recent', label: 'Recent Files', icon: Clock },
   { id: 'home', label: 'Quick Access', icon: Star },
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'pictures', label: 'Pictures', icon: Image },
   { id: 'videos', label: 'Videos', icon: Film },
-];
-
-const EXTERNAL_LOCATIONS = [
-  { id: 'ntfs-drive', label: 'Windows_Data (NTFS)', icon: HardDrive },
-  { id: 'smb-nas', label: 'NAS Studio (SMB)', icon: Network },
 ];
 
 function FileKindIcon({ kind }: { kind: FsNode['kind'] }) {
@@ -115,7 +123,8 @@ function mapKindToInstallerFormat(kind: FsNode['kind']): ExeInstallRequest['form
 
 export function FileManagerApp({
   nodes,
-  initialFolderId = 'downloads',
+  volumes,
+  initialFolderId = 'this-pc',
   activePrefixCount,
   onCreateFolder,
   onRenameNode,
@@ -126,6 +135,7 @@ export function FileManagerApp({
   onLaunchExeInstaller,
   onBulkInstallFonts,
   onImportFiles,
+  onMountVolume,
   onOpenFontManager,
 }: FileManagerAppProps) {
   const [tabs, setTabs] = useState<ExplorerTab[]>([
@@ -140,6 +150,10 @@ export function FileManagerApp({
   const [renameValue, setRenameValue] = useState('');
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+  const [attachingDrive, setAttachingDrive] = useState(false);
+  const [newDriveLabel, setNewDriveLabel] = useState('Media Disk');
+  const [newDriveFs, setNewDriveFs] = useState<StorageVolume['filesystem']>('NTFS');
+  const [newDriveGb, setNewDriveGb] = useState(500);
   const [fileContextMenu, setFileContextMenu] = useState<{
     x: number;
     y: number;
@@ -184,14 +198,17 @@ export function FileManagerApp({
     if (activeTabId === tabId) setActiveTabId(next[0].id);
   };
 
+  const isThisPcView = currentFolderId === 'this-pc' && !searchQuery.trim();
+
   const visibleItems = useMemo(() => {
     if (searchQuery.trim()) return searchFiles(nodes, searchQuery);
+    if (currentFolderId === 'this-pc') return [];
     if (currentFolderId === 'recent') return getRecentFiles(nodes, 12);
     return getChildren(nodes, currentFolderId);
   }, [nodes, currentFolderId, searchQuery]);
 
   const breadcrumbs = useMemo(() => {
-    if (currentFolderId === 'recent') return [];
+    if (currentFolderId === 'recent' || currentFolderId === 'this-pc') return [];
     return getBreadcrumbs(nodes, currentFolderId);
   }, [nodes, currentFolderId]);
 
@@ -220,6 +237,7 @@ export function FileManagerApp({
     visibleItems.every((item) => selectedIds.includes(item.id));
 
   const getTabTitle = (folderId: string) => {
+    if (folderId === 'this-pc') return 'This PC';
     if (folderId === 'recent') return 'Recent Files';
     return nodes.find((n) => n.id === folderId)?.name ?? 'Files';
   };
@@ -394,13 +412,17 @@ export function FileManagerApp({
         <div className="flex min-w-0 items-center gap-1 text-xs">
           <button
             type="button"
-            onClick={() => navigateTab('home')}
-            aria-label="Go to Home directory"
+            onClick={() => navigateTab('this-pc')}
+            aria-label="Go to This PC drives overview"
             className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <Home className="h-3.5 w-3.5" />
           </button>
-          {currentFolderId === 'recent' ? (
+          {currentFolderId === 'this-pc' ? (
+            <span className="font-semibold text-slate-800 dark:text-slate-200">
+              This PC · All Storage Volumes ({volumes.length})
+            </span>
+          ) : currentFolderId === 'recent' ? (
             <span className="font-medium text-slate-800 dark:text-slate-200">
               Recent Files
             </span>
@@ -433,16 +455,18 @@ export function FileManagerApp({
             className="hidden"
             aria-label="Import local files into File Manager"
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            <span>Add Files</span>
-          </button>
+          {!isThisPcView && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Add Files</span>
+            </button>
+          )}
 
-          {currentFolderId !== 'recent' && (
+          {currentFolderId !== 'recent' && !isThisPcView && (
             <button
               type="button"
               onClick={() => setCreatingFolder(true)}
@@ -590,26 +614,44 @@ export function FileManagerApp({
           </div>
 
           <div className="mt-4 border-t border-slate-200/80 pt-3 dark:border-slate-800">
-            <div className="mb-1.5 px-2.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              Drives &amp; Network
+            <div className="mb-1.5 flex items-center justify-between px-2.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              <span>This PC · Drives</span>
+              <span className="font-mono tabular-nums">{volumes.length}</span>
             </div>
             <div className="space-y-0.5">
-              {EXTERNAL_LOCATIONS.map((loc) => {
-                const Icon = loc.icon;
-                const active = currentFolderId === loc.id && !searchQuery;
+              {volumes.map((vol) => {
+                const Icon =
+                  vol.kind === 'network'
+                    ? Network
+                    : vol.kind === 'external-usb'
+                      ? Usb
+                      : HardDrive;
+                const active = currentFolderId === vol.id && !searchQuery;
                 return (
                   <button
-                    key={loc.id}
+                    key={vol.id}
                     type="button"
-                    onClick={() => navigateTab(loc.id)}
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${
+                    onClick={() => navigateTab(vol.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => {
+                      if (draggedId) {
+                        onMoveNode(draggedId, vol.id);
+                        setDraggedId(null);
+                      }
+                    }}
+                    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${
                       active
                         ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
                         : 'text-slate-700 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-800/70'
                     }`}
                   >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{loc.label}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{vol.label}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                      ({vol.letter})
+                    </span>
                   </button>
                 );
               })}
@@ -617,6 +659,175 @@ export function FileManagerApp({
           </div>
         </aside>
 
+        {isThisPcView ? (
+          <div className="col-span-9 min-h-0 overflow-y-auto p-5">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white">
+                  This PC — Devices and Drives ({volumes.length})
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Every internal SSD/HDD partition (NTFS R/W, ext4, exFAT) and USB drive auto-mounts with Windows-style drive letters (C:, D:, E:, F:...).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAttachingDrive((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 whitespace-nowrap shrink-0"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Attach / Detect Volume</span>
+              </button>
+            </div>
+
+            {attachingDrive && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onMountVolume({
+                    label: newDriveLabel,
+                    filesystem: newDriveFs,
+                    kind: newDriveFs === 'exFAT' ? 'external-usb' : 'local-disk',
+                    totalGb: newDriveGb,
+                    usedGb: Math.round(newDriveGb * 0.22),
+                  });
+                  setAttachingDrive(false);
+                  setBannerMsg(
+                    `Auto-mounted "${newDriveLabel}" (${newDriveFs} Read/Write) into This PC.`
+                  );
+                }}
+                className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-sky-500/40 bg-sky-500/8 p-4"
+              >
+                <label className="min-w-[150px] flex-1">
+                  <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                    Volume Label
+                  </span>
+                  <input
+                    type="text"
+                    value={newDriveLabel}
+                    onChange={(e) => setNewDriveLabel(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                  />
+                </label>
+                <label>
+                  <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                    Filesystem
+                  </span>
+                  <select
+                    value={newDriveFs}
+                    onChange={(e) =>
+                      setNewDriveFs(e.target.value as StorageVolume['filesystem'])
+                    }
+                    className="mt-1 block rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <option value="NTFS">NTFS (Windows R/W)</option>
+                    <option value="exFAT">exFAT (USB Drive)</option>
+                    <option value="ext4">ext4 (Linux SSD)</option>
+                    <option value="Btrfs">Btrfs</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                    Size (GB)
+                  </span>
+                  <select
+                    value={newDriveGb}
+                    onChange={(e) => setNewDriveGb(Number(e.target.value))}
+                    className="mt-1 block rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <option value={128}>128 GB</option>
+                    <option value={256}>256 GB</option>
+                    <option value={500}>500 GB</option>
+                    <option value={1000}>1 TB (1000 GB)</option>
+                    <option value={2000}>2 TB (2000 GB)</option>
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-sky-500"
+                >
+                  Mount Drive
+                </button>
+              </form>
+            )}
+
+            <div className="space-y-5">
+              {[
+                {
+                  title: 'Local & Internal Disk Volumes',
+                  items: volumes.filter(
+                    (v) => v.kind === 'os-drive' || v.kind === 'local-disk'
+                  ),
+                },
+                {
+                  title: 'External USB & Network Drives',
+                  items: volumes.filter(
+                    (v) => v.kind === 'external-usb' || v.kind === 'network'
+                  ),
+                },
+              ].map((group) => (
+                <div key={group.title}>
+                  <div className="mb-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {group.title} ({group.items.length})
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {group.items.map((vol) => {
+                      const freeGb = computeVolumeFreeGb(vol);
+                      const usedPct = computeVolumeUsedPercent(vol);
+                      const Icon =
+                        vol.kind === 'network'
+                          ? Network
+                          : vol.kind === 'external-usb'
+                            ? Usb
+                            : HardDrive;
+                      return (
+                        <button
+                          key={vol.id}
+                          type="button"
+                          onClick={() => navigateTab(vol.id)}
+                          className="group flex items-start gap-3.5 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-sky-500/70 hover:bg-sky-50/40 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-500/60 dark:hover:bg-slate-900/90"
+                        >
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:text-sky-400">
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                                {vol.label} ({vol.letter})
+                              </span>
+                              <span className="shrink-0 font-mono text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                {vol.filesystem} {vol.readWrite ? 'R/W' : 'RO'}
+                              </span>
+                            </div>
+
+                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                              <div
+                                className={`h-full transition-all ${
+                                  usedPct >= 85 ? 'bg-rose-500' : 'bg-sky-500'
+                                }`}
+                                style={{ width: `${usedPct}%` }}
+                              />
+                            </div>
+
+                            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-slate-500 tabular-nums dark:text-slate-400">
+                              <span>
+                                {freeGb} GB free of {vol.totalGb} GB
+                              </span>
+                              <span className="truncate font-mono text-[10px]">
+                                {vol.devicePath}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Center File List */}
         <div className="col-span-5 flex min-h-0 flex-col border-r border-slate-200 dark:border-slate-800">
           {/* Quick select header */}
@@ -944,6 +1155,8 @@ export function FileManagerApp({
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Windows-Style File Right-Click Context Menu */}

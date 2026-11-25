@@ -18,6 +18,7 @@ import {
   type PartitionMode,
 } from '../../os/installerValidation';
 import noUsbWindowsPs1 from '../../../os-src/installer/AetherOS-Windows-NoUSB-Installer.ps1?raw';
+import doubleClickWindowsBat from '../../../os-src/installer/Install-AetherOS-DoubleClick.bat?raw';
 
 const STEPS = [
   'Language',
@@ -139,6 +140,16 @@ export function OsInstallerApp() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadDoubleClickBat = () => {
+    const blob = new Blob([doubleClickWindowsBat], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Install-AetherOS-DoubleClick.bat';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleNext = () => {
     if (step === 4) {
       const result = validateInstallerUser(user);
@@ -199,17 +210,27 @@ export function OsInstallerApp() {
                   Switch from Windows to AetherOS — Without a Pendrive
                 </h1>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  Stages AetherOS directly on your internal SSD/HDD from inside Windows 10/11 and adds an automatic UEFI boot entry — no USB stick required.
+                  Download both files into one folder and simply double-click <span className="font-mono text-slate-700 dark:text-slate-200">Install-AetherOS-DoubleClick.bat</span> — Windows auto-prompts UAC Admin and starts setup immediately.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleDownloadNoUsbScript}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>Download Windows .ps1 Stager</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleDownloadDoubleClickBat}
+                  className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500 whitespace-nowrap"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download Double-Click Setup (.bat)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadNoUsbScript}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download Engine (.ps1)</span>
+                </button>
+              </div>
             </div>
 
             {/* Mode Cards: Dual-Boot vs Replace Windows */}

@@ -1,14 +1,84 @@
-import type { FsNode } from './types';
+import type { FsNode, StorageVolume } from './types';
+
+export const INITIAL_STORAGE_VOLUMES: StorageVolume[] = [
+  {
+    id: 'home',
+    letter: 'C:',
+    label: 'AetherOS System',
+    devicePath: '/dev/nvme0n1p2',
+    mountPoint: '/',
+    filesystem: 'ext4',
+    kind: 'os-drive',
+    totalGb: 256,
+    usedGb: 42,
+    mounted: true,
+    readWrite: true,
+  },
+  {
+    id: 'ntfs-drive',
+    letter: 'D:',
+    label: 'Windows_Data',
+    devicePath: '/dev/nvme0n1p3',
+    mountPoint: '/media/aether/Windows_Data',
+    filesystem: 'NTFS',
+    kind: 'local-disk',
+    totalGb: 512,
+    usedGb: 294,
+    mounted: true,
+    readWrite: true,
+  },
+  {
+    id: 'vol-e',
+    letter: 'E:',
+    label: 'Creative Projects',
+    devicePath: '/dev/sda1',
+    mountPoint: '/media/aether/Creative_Projects',
+    filesystem: 'NTFS',
+    kind: 'local-disk',
+    totalGb: 1000,
+    usedGb: 412,
+    mounted: true,
+    readWrite: true,
+  },
+  {
+    id: 'vol-f',
+    letter: 'F:',
+    label: 'SanDisk Extreme USB',
+    devicePath: '/dev/sdb1',
+    mountPoint: '/media/aether/SanDisk_Extreme',
+    filesystem: 'exFAT',
+    kind: 'external-usb',
+    totalGb: 256,
+    usedGb: 84,
+    mounted: true,
+    readWrite: true,
+  },
+  {
+    id: 'smb-nas',
+    letter: 'Z:',
+    label: 'NAS Studio',
+    devicePath: '//nas.studio.local/projects',
+    mountPoint: '/mnt/nas-studio',
+    filesystem: 'SMB 3.1',
+    kind: 'network',
+    totalGb: 4000,
+    usedGb: 1840,
+    mounted: true,
+    readWrite: true,
+  },
+];
 
 export const INITIAL_FS_NODES: FsNode[] = [
-  // Root virtual mount points
-  { id: 'home', name: 'Home', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:40' },
+  // Root virtual mount points & Windows-style drive volumes (C:, D:, E:, F:, Z:)
+  { id: 'home', name: 'AetherOS System (C:)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:40' },
   { id: 'downloads', name: 'Downloads', parentId: 'home', kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:52' },
   { id: 'documents', name: 'Documents', parentId: 'home', kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-24 19:15' },
   { id: 'pictures', name: 'Pictures', parentId: 'home', kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-23 14:22' },
   { id: 'videos', name: 'Videos', parentId: 'home', kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-22 11:05' },
-  { id: 'ntfs-drive', name: 'Windows_Data (NTFS)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:10' },
-  { id: 'smb-nas', name: 'NAS Studio (SMB)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:45' },
+  { id: 'ntfs-drive', name: 'Windows_Data (D:)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:10' },
+  { id: 'vol-e', name: 'Creative Projects (E:)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:20' },
+  { id: 'vol-f', name: 'SanDisk Extreme USB (F:)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:35' },
+  { id: 'smb-nas', name: 'NAS Studio (Z:)', parentId: null, kind: 'folder', sizeBytes: 0, modifiedAt: '2026-11-25 08:45' },
 
   // Downloads (includes EXE, MSI, and ZIP archive for testing real workflows)
   {
@@ -224,7 +294,54 @@ export const INITIAL_FS_NODES: FsNode[] = [
     content: 'Adobe Illustrator Artwork · CMYK · 6 Artboards (NTFS R/W verified)',
   },
 
-  // SMB Network Storage
+  // Creative Projects (E: — Secondary Internal 1TB SSD/HDD NTFS R/W)
+  {
+    id: 'vole-exports',
+    name: '4K_Commercial_Exports',
+    parentId: 'vol-e',
+    kind: 'folder',
+    sizeBytes: 0,
+    modifiedAt: '2026-11-24 18:10',
+  },
+  {
+    id: 'vole-psd-master',
+    name: 'Studio_Billboard_8K_Master.psd',
+    parentId: 'vol-e',
+    kind: 'image',
+    sizeBytes: 486_000_000,
+    modifiedAt: '2026-11-25 08:18',
+    content: 'Adobe Photoshop PSB/PSD Master · 7680 × 4320 · 16-bit Adobe RGB · Stored on E:\\ (NTFS Read/Write)',
+  },
+  {
+    id: 'vole-reel',
+    name: 'Festival_Trailer_Grade.mov',
+    parentId: 'vole-exports',
+    kind: 'video',
+    sizeBytes: 2_140_000_000,
+    modifiedAt: '2026-11-24 18:05',
+    content: 'DNxHR HQX 4K · 24 fps · Auto-mounted from /dev/sda1 (NTFS R/W)',
+  },
+
+  // SanDisk Extreme USB (F: — External USB 3.2 Gen 2 exFAT)
+  {
+    id: 'volf-camera',
+    name: 'Camera_RAW_Backup',
+    parentId: 'vol-f',
+    kind: 'folder',
+    sizeBytes: 0,
+    modifiedAt: '2026-11-25 08:30',
+  },
+  {
+    id: 'volf-notes',
+    name: 'Shoot_Checklist.txt',
+    parentId: 'vol-f',
+    kind: 'document',
+    sizeBytes: 3_420,
+    modifiedAt: '2026-11-25 08:34',
+    content: 'SanDisk Extreme NVMe USB-C (F:)\nMounted via exFAT Read/Write at 10 Gbps (USB 3.2 Gen 2).',
+  },
+
+  // SMB Network Storage (Z:)
   {
     id: 'smb-render',
     name: 'Shared_Studio_Footage.mov',
@@ -235,6 +352,82 @@ export const INITIAL_FS_NODES: FsNode[] = [
     content: 'SMB 3.1.1 Share (smb://nas.studio.local/projects) · 10GbE throughput verified',
   },
 ];
+
+export function computeVolumeFreeGb(volume: StorageVolume): number {
+  return Math.max(0, Math.round(volume.totalGb - volume.usedGb));
+}
+
+export function computeVolumeUsedPercent(volume: StorageVolume): number {
+  if (volume.totalGb <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((volume.usedGb / volume.totalGb) * 100)));
+}
+
+export function getNextDriveLetter(volumes: StorageVolume[]): string {
+  const used = new Set(volumes.map((v) => v.letter.toUpperCase()));
+  const candidates = 'DEFGHIJKLMNOPQRSTUVWXY'.split('').map((c) => `${c}:`);
+  return candidates.find((letter) => !used.has(letter)) ?? 'X:';
+}
+
+export function mountNewStorageVolume(
+  volumes: StorageVolume[],
+  nodes: FsNode[],
+  options: {
+    label: string;
+    filesystem?: StorageVolume['filesystem'];
+    kind?: StorageVolume['kind'];
+    totalGb?: number;
+    usedGb?: number;
+  }
+): { volumes: StorageVolume[]; nodes: FsNode[]; created: StorageVolume } {
+  const letter = getNextDriveLetter(volumes);
+  const cleanLabel = options.label.trim() || 'New Volume';
+  const slug = letter.replace(':', '').toLowerCase();
+  const id = `vol-${slug}-${Date.now()}`;
+  const kind = options.kind ?? 'local-disk';
+  const filesystem = options.filesystem ?? 'NTFS';
+  const totalGb = Math.max(16, options.totalGb ?? 500);
+  const usedGb = Math.min(totalGb, Math.max(0, options.usedGb ?? 64));
+  const diskIndex = volumes.length + 1;
+
+  const created: StorageVolume = {
+    id,
+    letter,
+    label: cleanLabel,
+    devicePath: kind === 'external-usb' ? `/dev/sd${String.fromCharCode(97 + diskIndex)}1` : `/dev/nvme1n1p${diskIndex}`,
+    mountPoint: `/media/aether/${cleanLabel.replace(/\s+/g, '_')}`,
+    filesystem,
+    kind,
+    totalGb,
+    usedGb,
+    mounted: true,
+    readWrite: true,
+  };
+
+  const rootFolderNode: FsNode = {
+    id,
+    name: `${cleanLabel} (${letter})`,
+    parentId: null,
+    kind: 'folder',
+    sizeBytes: 0,
+    modifiedAt: 'Just now',
+  };
+
+  const readmeNode: FsNode = {
+    id: `${id}-info`,
+    name: 'Volume_Ready.txt',
+    parentId: id,
+    kind: 'document',
+    sizeBytes: 1_024,
+    modifiedAt: 'Just now',
+    content: `${cleanLabel} (${letter}) auto-mounted via AetherOS Storage Service.\nDevice: ${created.devicePath}\nFilesystem: ${filesystem} (Read/Write Enabled)\nCapacity: ${totalGb} GB (${totalGb - usedGb} GB free)`,
+  };
+
+  return {
+    volumes: [...volumes, created],
+    nodes: [...nodes, rootFolderNode, readmeNode],
+    created,
+  };
+}
 
 export function classifyUploadedFile(fileName: string): FsNode['kind'] {
   const lower = fileName.trim().toLowerCase();

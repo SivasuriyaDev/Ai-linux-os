@@ -2,13 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INITIAL_FS_NODES,
+  INITIAL_STORAGE_VOLUMES,
   classifyUploadedFile,
+  computeVolumeFreeGb,
+  computeVolumeUsedPercent,
   createFolder,
   deleteNode,
   extractZipArchive,
   getBreadcrumbs,
   getChildren,
+  getNextDriveLetter,
   isInstallablePackageKind,
+  mountNewStorageVolume,
   moveNode,
   parseFontFamilyFromFilename,
   renameNode,
@@ -43,7 +48,7 @@ test('rename, move, search, breadcrumbs, and recursive delete behave determinist
   const crumbs = getBreadcrumbs(moved, created.created.id);
   assert.deepEqual(
     crumbs.map((c) => c.name),
-    ['Home', 'Documents', 'Studio_2026']
+    ['AetherOS System (C:)', 'Documents', 'Studio_2026']
   );
 
   const deleted = deleteNode(moved, created.created.id);
@@ -66,4 +71,33 @@ test('classifyUploadedFile and parseFontFamilyFromFilename support Windows-simpl
   const parsed = parseFontFamilyFromFilename('PlayfairDisplay-Regular.otf');
   assert.equal(parsed.family, 'Playfair Display');
   assert.equal(parsed.format, 'OTF');
+});
+
+test('Windows-style storage volumes expose C:/D:/E:/F:/Z: and auto-assign next drive letters G:, H: for new volumes', () => {
+  assert.deepEqual(
+    INITIAL_STORAGE_VOLUMES.map((v) => v.letter),
+    ['C:', 'D:', 'E:', 'F:', 'Z:']
+  );
+  assert.equal(computeVolumeFreeGb(INITIAL_STORAGE_VOLUMES[0]), 214);
+  assert.equal(computeVolumeUsedPercent(INITIAL_STORAGE_VOLUMES[0]), 16);
+  assert.equal(getNextDriveLetter(INITIAL_STORAGE_VOLUMES), 'G:');
+
+  const firstMount = mountNewStorageVolume(INITIAL_STORAGE_VOLUMES, INITIAL_FS_NODES, {
+    label: 'Games SSD',
+    filesystem: 'NTFS',
+    totalGb: 1000,
+    usedGb: 250,
+  });
+  assert.equal(firstMount.created.letter, 'G:');
+  assert.equal(getChildren(firstMount.nodes, firstMount.created.id).length, 1);
+
+  const secondMount = mountNewStorageVolume(firstMount.volumes, firstMount.nodes, {
+    label: 'Backup HDD',
+    filesystem: 'exFAT',
+    kind: 'external-usb',
+    totalGb: 2000,
+    usedGb: 400,
+  });
+  assert.equal(secondMount.created.letter, 'H:');
+  assert.equal(secondMount.volumes.length, INITIAL_STORAGE_VOLUMES.length + 2);
 });

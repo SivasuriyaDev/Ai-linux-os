@@ -59,9 +59,11 @@ import {
 } from './os/creativeTools';
 import {
   INITIAL_FS_NODES,
+  INITIAL_STORAGE_VOLUMES,
   createFolder,
   deleteNode,
   extractZipArchive,
+  mountNewStorageVolume,
   moveNode,
   renameNode,
 } from './os/fileSystem';
@@ -89,6 +91,7 @@ import type {
   ProcessItem,
   SnapZone,
   SoftwarePackage,
+  StorageVolume,
   SystemSettingsState,
   UsbPortDevice,
   VirtualDesktop,
@@ -246,7 +249,8 @@ export default function App() {
 
   // Core OS subsystem state
   const [files, setFiles] = useState<FsNode[]>(INITIAL_FS_NODES);
-  const [fileManagerFolder, setFileManagerFolder] = useState<string>('downloads');
+  const [volumes, setVolumes] = useState<StorageVolume[]>(INITIAL_STORAGE_VOLUMES);
+  const [fileManagerFolder, setFileManagerFolder] = useState<string>('this-pc');
   const [prefixes, setPrefixes] = useState<WinePrefix[]>(INITIAL_WINE_PREFIXES);
   const [packages, setPackages] = useState<SoftwarePackage[]>(INITIAL_PACKAGES);
   const [pendingExeRequest, setPendingExeRequest] = useState<ExeInstallRequest | null>(null);
@@ -731,6 +735,23 @@ export default function App() {
     setFiles((prev) => [...createdNodes, ...prev]);
   };
 
+  const handleMountVolume = (options: {
+    label: string;
+    filesystem?: StorageVolume['filesystem'];
+    kind?: StorageVolume['kind'];
+    totalGb?: number;
+    usedGb?: number;
+  }) => {
+    const res = mountNewStorageVolume(volumes, files, options);
+    setVolumes(res.volumes);
+    setFiles(res.nodes);
+    pushNotification(
+      `Mounted Volume ${res.created.letter}`,
+      `${res.created.label} (${res.created.filesystem} R/W, ${res.created.totalGb} GB) is now ready in This PC.`,
+      'Storage Service'
+    );
+  };
+
   const handleOpenFileFromStart = (node: FsNode) => {
     if (node.parentId) setFileManagerFolder(node.parentId);
     handleLaunchApp('file-manager');
@@ -867,6 +888,7 @@ export default function App() {
             {win.appId === 'file-manager' && (
               <FileManagerApp
                 nodes={files}
+                volumes={volumes}
                 initialFolderId={fileManagerFolder}
                 activePrefixCount={prefixes.length}
                 onCreateFolder={(parentId, name) =>
@@ -890,6 +912,7 @@ export default function App() {
                 onLaunchExeInstaller={handleLaunchExeInstaller}
                 onBulkInstallFonts={handleBulkInstallFontsFromFiles}
                 onImportFiles={handleImportFilesToFolder}
+                onMountVolume={handleMountVolume}
                 onOpenFontManager={() => handleLaunchApp('font-manager')}
               />
             )}

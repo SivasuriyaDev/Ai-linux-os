@@ -219,6 +219,20 @@ export interface UsbPortDevice {
   lastTested?: string;
 }
 
+export interface StorageVolume {
+  id: string;
+  letter: string;
+  label: string;
+  devicePath: string;
+  mountPoint: string;
+  filesystem: 'ext4' | 'NTFS' | 'exFAT' | 'Btrfs' | 'SMB 3.1';
+  kind: 'os-drive' | 'local-disk' | 'external-usb' | 'network';
+  totalGb: number;
+  usedGb: number;
+  mounted: boolean;
+  readWrite: boolean;
+}
+
 export interface SystemSettingsState {
   theme: 'dark' | 'light';
   wallpaper: WallpaperId;

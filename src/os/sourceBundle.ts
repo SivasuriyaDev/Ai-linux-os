@@ -8,6 +8,8 @@ import autoDriversSh from '../../os-src/drivers/aether-auto-drivers.sh?raw';
 import adobeManagerPy from '../../os-src/adobe-manager/adobe_compat_manager.py?raw';
 import installerPy from '../../os-src/installer/calamares_installer.py?raw';
 import noUsbWindowsPs1 from '../../os-src/installer/AetherOS-Windows-NoUSB-Installer.ps1?raw';
+import doubleClickWindowsBat from '../../os-src/installer/Install-AetherOS-DoubleClick.bat?raw';
+import windowsDrivesMountSh from '../../os-src/storage/aether-windows-drives-automount.sh?raw';
 import nftablesConf from '../../os-src/security/nftables.conf?raw';
 import testQemuSh from '../../os-src/testing/test-qemu.sh?raw';
 import compatMatrixMd from '../../os-src/docs/COMPATIBILITY_MATRIX.md?raw';
@@ -104,6 +106,24 @@ export const OS_SOURCE_ARTIFACTS: OsSourceArtifact[] = [
     language: 'bash',
     summary: 'Windows 10/11 PowerShell No-Pendrive direct migration script: shrinks C:\\ safely, stages AetherOS on FAT32, and adds UEFI GRUB2 boot entry.',
     content: noUsbWindowsPs1,
+  },
+  {
+    id: 'double-click-bat',
+    path: 'os-src/installer/Install-AetherOS-DoubleClick.bat',
+    fileName: 'Install-AetherOS-DoubleClick.bat',
+    category: 'Installer & Security',
+    language: 'bash',
+    summary: 'Windows 10/11 Double-Click Auto-UAC Launcher: double-click to request Admin rights and run AetherOS No-Pendrive setup without opening PowerShell manually.',
+    content: doubleClickWindowsBat,
+  },
+  {
+    id: 'windows-drives-automount',
+    path: 'os-src/storage/aether-windows-drives-automount.sh',
+    fileName: 'aether-windows-drives-automount.sh',
+    category: 'Installer & Security',
+    language: 'bash',
+    summary: 'Automatically mounts every internal SSD/HDD partition (NTFS R/W, exFAT, ext4) and USB drive on boot/hotplug as familiar C:, D:, E:, F: volumes.',
+    content: windowsDrivesMountSh,
   },
   {
     id: 'auto-drivers-sh',
