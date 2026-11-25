@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, HardDrive, ShieldCheck } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  HardDrive,
+  Laptop,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
+import { evaluateNoUsbMigrationReadiness } from '../../os/hardwareEngine';
 import {
   calculatePartitionLayout,
   validateInstallerUser,
@@ -7,6 +17,7 @@ import {
   type InstallerUserConfig,
   type PartitionMode,
 } from '../../os/installerValidation';
+import noUsbWindowsPs1 from '../../../os-src/installer/AetherOS-Windows-NoUSB-Installer.ps1?raw';
 
 const STEPS = [
   'Language',
@@ -29,7 +40,29 @@ const INSTALL_LOGS = [
   'Installation complete. Ready for first-boot restart.',
 ];
 
+const NO_USB_STAGE_LOGS = [
+  'Verifying UEFI GPT firmware & Windows C:\\ NTFS integrity...',
+  'Disabling Windows Fast Startup (powercfg /h off) for clean NTFS access...',
+  'Downloading AetherOS 1.0 LTS image (1.95 GB) & checking SHA-256 hash...',
+  'Shrinking C:\\ safely and creating 4 GB FAT32 AETHER_BOOT staging partition...',
+  'Extracting vmlinuz-6.12-lts, initrd.img, and SquashFS live system (No USB needed)...',
+  'Registering AetherOS UEFI GRUB2 boot entry via bcdedit /displayorder /addfirst...',
+  'Ready! Reboot PC now to enter AetherOS directly — zero pendrive required.',
+];
+
 export function OsInstallerApp() {
+  const [installerMode, setInstallerMode] = useState<'no-usb' | 'live-iso'>('no-usb');
+
+  // No-Pendrive Windows -> AetherOS Migration state
+  const [windowsFreeGb] = useState(260);
+  const [noUsbAllocateGb, setNoUsbAllocateGb] = useState(120);
+  const [bitLockerEnabled, setBitLockerEnabled] = useState(false);
+  const [uefiMode, setUefiMode] = useState(true);
+  const [keepWindowsDualBoot, setKeepWindowsDualBoot] = useState(true);
+  const [importWindowsUserFiles, setImportWindowsUserFiles] = useState(true);
+  const [noUsbStaging, setNoUsbStaging] = useState(false);
+  const [noUsbLogCount, setNoUsbLogCount] = useState(0);
+
   const [step, setStep] = useState(0);
   const [language, setLanguage] = useState('English (United States) — en_US.UTF-8');
   const [keyboard, setKeyboard] = useState('English (US QWERTY)');
@@ -53,10 +86,39 @@ export function OsInstallerApp() {
   const [installing, setInstalling] = useState(false);
   const [logCount, setLogCount] = useState(0);
 
+  const noUsbReadiness = useMemo(
+    () =>
+      evaluateNoUsbMigrationReadiness({
+        windowsFreeGb,
+        allocateGb: noUsbAllocateGb,
+        bitLockerEnabled,
+        uefiMode,
+        keepWindowsDualBoot,
+        importWindowsUserFiles,
+      }),
+    [
+      windowsFreeGb,
+      noUsbAllocateGb,
+      bitLockerEnabled,
+      uefiMode,
+      keepWindowsDualBoot,
+      importWindowsUserFiles,
+    ]
+  );
+
   const partitions = useMemo(
     () => calculatePartitionLayout(512, partitionMode, firmware, luksEncrypt, aetherShareGb),
     [partitionMode, firmware, luksEncrypt, aetherShareGb]
   );
+
+  useEffect(() => {
+    if (!noUsbStaging) return;
+    if (noUsbLogCount >= NO_USB_STAGE_LOGS.length) return;
+    const timer = window.setTimeout(() => setNoUsbLogCount((c) => c + 1), 380);
+    return () => window.clearTimeout(timer);
+  }, [noUsbStaging, noUsbLogCount]);
+
+  const noUsbComplete = noUsbStaging && noUsbLogCount >= NO_USB_STAGE_LOGS.length;
 
   useEffect(() => {
     if (!installing) return;
@@ -66,6 +128,16 @@ export function OsInstallerApp() {
   }, [installing, logCount]);
 
   const installComplete = installing && logCount >= INSTALL_LOGS.length;
+
+  const handleDownloadNoUsbScript = () => {
+    const blob = new Blob([noUsbWindowsPs1], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'AetherOS-Windows-NoUSB-Installer.ps1';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleNext = () => {
     if (step === 4) {
@@ -82,7 +154,254 @@ export function OsInstallerApp() {
   };
 
   return (
-    <div className="grid h-full grid-cols-12 bg-slate-50/75 text-slate-900 dark:bg-slate-950/60 dark:text-slate-100">
+    <div className="flex h-full flex-col bg-slate-50/75 text-slate-900 dark:bg-slate-950/60 dark:text-slate-100">
+      {/* Top Installer Mode Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-5 py-2.5 dark:border-slate-800 dark:bg-slate-900/90">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setInstallerMode('no-usb')}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              installerMode === 'no-usb'
+                ? 'bg-sky-600 text-white'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Laptop className="h-3.5 w-3.5" />
+            <span>Direct from Windows (No Pendrive)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setInstallerMode('live-iso')}
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              installerMode === 'live-iso'
+                ? 'bg-sky-600 text-white'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <HardDrive className="h-3.5 w-3.5" />
+            <span>Standard Live ISO / USB Installer</span>
+          </button>
+        </div>
+
+        <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+          AetherOS 1.0 LTS · UEFI / Dual-Boot Ready
+        </span>
+      </div>
+
+      {installerMode === 'no-usb' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+          <div className="mx-auto max-w-3xl space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h1 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
+                  Switch from Windows to AetherOS — Without a Pendrive
+                </h1>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Stages AetherOS directly on your internal SSD/HDD from inside Windows 10/11 and adds an automatic UEFI boot entry — no USB stick required.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadNoUsbScript}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Download Windows .ps1 Stager</span>
+              </button>
+            </div>
+
+            {/* Mode Cards: Dual-Boot vs Replace Windows */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setKeepWindowsDualBoot(true)}
+                className={`rounded-xl border p-4 text-left transition-colors ${
+                  keepWindowsDualBoot
+                    ? 'border-sky-500 bg-sky-500/10'
+                    : 'border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900'
+                }`}
+              >
+                <div className="text-xs font-semibold text-slate-900 dark:text-white">
+                  Dual-Boot Alongside Windows (Recommended)
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Keeps Windows 11 completely safe. Shrinks C:\ automatically and adds an AetherOS / Windows boot menu on restart.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setKeepWindowsDualBoot(false)}
+                className={`rounded-xl border p-4 text-left transition-colors ${
+                  !keepWindowsDualBoot
+                    ? 'border-sky-500 bg-sky-500/10'
+                    : 'border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900'
+                }`}
+              >
+                <div className="text-xs font-semibold text-slate-900 dark:text-white">
+                  Full Switch (Replace Windows on Reboot)
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Stages installer into RAM from C:\ without a USB stick, then replaces Windows cleanly after reboot.
+                </p>
+              </button>
+            </div>
+
+            {/* Disk Space Allocation & Pre-Flight Switches */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4 dark:border-slate-800 dark:bg-slate-900">
+              <label className="block">
+                <div className="mb-1 flex flex-wrap justify-between gap-2 text-xs font-medium">
+                  <span>Space to Allocate from Windows C:\ ({windowsFreeGb} GB free)</span>
+                  <span className="font-mono text-sky-600 tabular-nums dark:text-sky-400">
+                    AetherOS: {noUsbAllocateGb} GB · Windows Free After: {noUsbReadiness.windowsRemainingGb} GB
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={40}
+                  max={240}
+                  step={8}
+                  value={noUsbAllocateGb}
+                  onChange={(e) => setNoUsbAllocateGb(Number(e.target.value))}
+                  aria-label="Disk space to allocate for AetherOS"
+                  className="w-full accent-sky-600"
+                />
+              </label>
+
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3 text-xs">
+                <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <span>UEFI GPT Firmware</span>
+                  <input
+                    type="checkbox"
+                    checked={uefiMode}
+                    onChange={(e) => setUefiMode(e.target.checked)}
+                    className="h-4 w-4 accent-sky-600"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <span>BitLocker Active</span>
+                  <input
+                    type="checkbox"
+                    checked={bitLockerEnabled}
+                    onChange={(e) => setBitLockerEnabled(e.target.checked)}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <span>Auto-Import Fonts &amp; Docs</span>
+                  <input
+                    type="checkbox"
+                    checked={importWindowsUserFiles}
+                    onChange={(e) => setImportWindowsUserFiles(e.target.checked)}
+                    className="h-4 w-4 accent-sky-600"
+                  />
+                </label>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+                Boot Strategy: {noUsbReadiness.bootMethod}
+              </div>
+            </div>
+
+            {/* Readiness Diagnostics */}
+            {noUsbReadiness.blockers.length > 0 && (
+              <div className="space-y-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-800 dark:text-rose-300">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>Action Needed Before Staging</span>
+                </div>
+                {noUsbReadiness.blockers.map((b) => (
+                  <p key={b}>• {b}</p>
+                ))}
+              </div>
+            )}
+
+            {noUsbReadiness.warnings.length > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 text-xs text-amber-800 dark:text-amber-300">
+                {noUsbReadiness.warnings[0]}
+              </div>
+            )}
+
+            {/* Live No-Pendrive Staging Action / Progress */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              {!noUsbStaging ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-slate-600 dark:text-slate-300">
+                    Click to preview the automated Windows-to-AetherOS no-pendrive boot staging sequence.
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!noUsbReadiness.ready}
+                    onClick={() => {
+                      setNoUsbLogCount(1);
+                      setNoUsbStaging(true);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap shrink-0"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Stage AetherOS (No Pendrive)</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <span>
+                      {noUsbComplete
+                        ? 'UEFI Boot Entry Staged — Ready to Reboot into AetherOS!'
+                        : 'Staging AetherOS on Internal Drive (Zero USB Required)...'}
+                    </span>
+                    <span className="font-mono tabular-nums text-sky-600 dark:text-sky-400">
+                      {Math.round((noUsbLogCount / NO_USB_STAGE_LOGS.length) * 100)}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                    <div
+                      className="h-full rounded-full bg-sky-500 transition-all duration-300"
+                      style={{
+                        width: `${(noUsbLogCount / NO_USB_STAGE_LOGS.length) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5 font-mono text-[11px]">
+                    {NO_USB_STAGE_LOGS.slice(0, noUsbLogCount).map((line) => (
+                      <div
+                        key={line}
+                        className="flex items-start gap-2 text-slate-700 dark:text-slate-300"
+                      >
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                        <span>{line}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {noUsbComplete && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+                      <span className="text-xs text-emerald-700 dark:text-emerald-400">
+                        Use the downloaded PowerShell stager on real Windows 10/11 hardware to execute this flow.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNoUsbStaging(false);
+                          setNoUsbLogCount(0);
+                        }}
+                        className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Reset</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-12">
       {/* Left Step Rail */}
       <aside className="col-span-4 border-r border-slate-200 bg-slate-100/70 p-4 sm:col-span-3 dark:border-slate-800 dark:bg-slate-900/50">
         <div className="mb-4">
@@ -532,6 +851,8 @@ export function OsInstallerApp() {
           )}
         </div>
       </div>
+        </div>
+      )}
     </div>
   );
 }

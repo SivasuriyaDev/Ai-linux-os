@@ -7,6 +7,8 @@ import type { WallpaperId } from '../os/types';
 interface LockAndBootOverlayProps {
   mode: 'boot' | 'lock';
   wallpaper: WallpaperId;
+  customWallpaperUrl?: string | null;
+  customWallpaperFit?: 'cover' | 'contain' | 'fill';
   onUnlock: () => void;
 }
 
@@ -21,6 +23,8 @@ const BOOT_STEPS = [
 export function LockAndBootOverlay({
   mode,
   wallpaper,
+  customWallpaperUrl,
+  customWallpaperFit,
   onUnlock,
 }: LockAndBootOverlayProps) {
   const [stage, setStage] = useState<'boot' | 'lock'>(mode);
@@ -106,7 +110,11 @@ export function LockAndBootOverlay({
       aria-label="AetherOS Sign In Screen"
       className="fixed inset-0 z-[100] flex flex-col items-center justify-between px-6 py-12 text-white"
     >
-      <WallpaperBackdrop wallpaper={wallpaper} />
+      <WallpaperBackdrop
+        wallpaper={wallpaper}
+        customWallpaperUrl={customWallpaperUrl}
+        customWallpaperFit={customWallpaperFit}
+      />
       <div className="pointer-events-none fixed inset-0 bg-slate-950/45 backdrop-blur-md" />
 
       <div className="relative z-10 text-center">

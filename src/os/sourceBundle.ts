@@ -3,8 +3,11 @@ import buildIsoSh from '../../os-src/build/build-iso.sh?raw';
 import grubCfg from '../../os-src/build/grub.cfg?raw';
 import desktopShellQml from '../../os-src/desktop/qml/DesktopShell.qml?raw';
 import taskbarQml from '../../os-src/desktop/qml/Taskbar.qml?raw';
+import zeroTerminalHandlersSh from '../../os-src/desktop/aether-zero-terminal-handlers.sh?raw';
+import autoDriversSh from '../../os-src/drivers/aether-auto-drivers.sh?raw';
 import adobeManagerPy from '../../os-src/adobe-manager/adobe_compat_manager.py?raw';
 import installerPy from '../../os-src/installer/calamares_installer.py?raw';
+import noUsbWindowsPs1 from '../../os-src/installer/AetherOS-Windows-NoUSB-Installer.ps1?raw';
 import nftablesConf from '../../os-src/security/nftables.conf?raw';
 import testQemuSh from '../../os-src/testing/test-qemu.sh?raw';
 import compatMatrixMd from '../../os-src/docs/COMPATIBILITY_MATRIX.md?raw';
@@ -67,6 +70,15 @@ export const OS_SOURCE_ARTIFACTS: OsSourceArtifact[] = [
     content: taskbarQml,
   },
   {
+    id: 'zero-terminal-handlers',
+    path: 'os-src/desktop/aether-zero-terminal-handlers.sh',
+    fileName: 'aether-zero-terminal-handlers.sh',
+    category: 'Qt 6 / QML Desktop',
+    language: 'bash',
+    summary: 'Registers Windows-style double-click 1-click installers (.exe, .msi, .deb, .AppImage) and File Manager bulk Font install (Linux + Adobe Wine sync).',
+    content: zeroTerminalHandlersSh,
+  },
+  {
     id: 'adobe-py',
     path: 'os-src/adobe-manager/adobe_compat_manager.py',
     fileName: 'adobe_compat_manager.py',
@@ -83,6 +95,24 @@ export const OS_SOURCE_ARTIFACTS: OsSourceArtifact[] = [
     language: 'python',
     summary: 'Graphical & scripted installer backend handling GPT/MBR partitioning, dual-boot, LUKS2 encryption, and chroot GRUB installation.',
     content: installerPy,
+  },
+  {
+    id: 'no-usb-ps1',
+    path: 'os-src/installer/AetherOS-Windows-NoUSB-Installer.ps1',
+    fileName: 'AetherOS-Windows-NoUSB-Installer.ps1',
+    category: 'Installer & Security',
+    language: 'bash',
+    summary: 'Windows 10/11 PowerShell No-Pendrive direct migration script: shrinks C:\\ safely, stages AetherOS on FAT32, and adds UEFI GRUB2 boot entry.',
+    content: noUsbWindowsPs1,
+  },
+  {
+    id: 'auto-drivers-sh',
+    path: 'os-src/drivers/aether-auto-drivers.sh',
+    fileName: 'aether-auto-drivers.sh',
+    category: 'Installer & Security',
+    language: 'bash',
+    summary: 'Automatic PCI/USB hardware driver installer for NVIDIA/AMD/Intel Graphics, PipeWire HD Audio, Wi-Fi/Bluetooth, Wacom, and USB 3.2 health verification.',
+    content: autoDriversSh,
   },
   {
     id: 'nftables',

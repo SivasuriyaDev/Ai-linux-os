@@ -17,7 +17,7 @@ interface AppManagerAppProps {
   onToggleInstall: (pkgId: string) => void;
   onCompleteExeInstall: (config: {
     fileName: string;
-    format: 'EXE' | 'MSI';
+    format: ExeInstallRequest['format'];
     prefixName: string;
     useDxvk: boolean;
     winVersion: 'win10' | 'win11';
@@ -57,7 +57,8 @@ export function AppManagerApp({
 
   const wizardActive = Boolean(pendingExeRequest) || showManualWizard;
   const activeFileName = pendingExeRequest?.fileName ?? manualFileName;
-  const activeFormat = pendingExeRequest?.format ?? manualFormat;
+  const activeFormat: ExeInstallRequest['format'] =
+    pendingExeRequest?.format ?? manualFormat;
 
   const filteredPackages = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -211,7 +212,7 @@ export function AppManagerApp({
                     Package Format
                   </span>
                   <select
-                    value={activeFormat}
+                    value={activeFormat === 'MSI' ? 'MSI' : 'EXE'}
                     disabled={Boolean(pendingExeRequest)}
                     onChange={(e) => setManualFormat(e.target.value as 'EXE' | 'MSI')}
                     className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"

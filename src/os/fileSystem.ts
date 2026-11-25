@@ -61,6 +61,77 @@ export const INITIAL_FS_NODES: FsNode[] = [
     ],
   },
   {
+    id: 'dl-blender-deb',
+    name: 'Blender_4.2_LTS_amd64.deb',
+    parentId: 'downloads',
+    kind: 'deb',
+    sizeBytes: 312_400_000,
+    modifiedAt: '2026-11-25 08:48',
+    content: 'Debian Package (.deb) · Blender 4.2 LTS 3D Creation Suite\nDouble-click to install automatically with full APT dependency resolution — no terminal required.',
+  },
+  {
+    id: 'dl-krita-appimage',
+    name: 'Krita_5.2.6_x86_64.AppImage',
+    parentId: 'downloads',
+    kind: 'appimage',
+    sizeBytes: 158_900_000,
+    modifiedAt: '2026-11-25 08:46',
+    content: 'Portable Linux AppImage · Krita 5.2.6 Digital Painting Studio\nDouble-click to auto-enable execute bit (no chmod +x needed), integrate into ~/Applications, and add Start Menu shortcut.',
+  },
+  {
+    id: 'dl-fonts-folder',
+    name: 'Creative_Fonts_Pack',
+    parentId: 'downloads',
+    kind: 'folder',
+    sizeBytes: 0,
+    modifiedAt: '2026-11-25 08:54',
+  },
+  {
+    id: 'dl-font-montserrat',
+    name: 'Montserrat-Bold.ttf',
+    parentId: 'dl-fonts-folder',
+    kind: 'font',
+    sizeBytes: 248_000,
+    modifiedAt: '2026-11-25 08:54',
+    content: 'TrueType Font (.ttf) · Montserrat Bold\nSelect multiple fonts and click "Install Selected Fonts" to install to Linux & sync into all Adobe Wine prefixes automatically.',
+  },
+  {
+    id: 'dl-font-poppins',
+    name: 'Poppins-SemiBold.ttf',
+    parentId: 'dl-fonts-folder',
+    kind: 'font',
+    sizeBytes: 196_000,
+    modifiedAt: '2026-11-25 08:54',
+    content: 'TrueType Font (.ttf) · Poppins SemiBold\nReady for 1-click bulk installation to ~/.local/share/fonts and Adobe Wine prefixes.',
+  },
+  {
+    id: 'dl-font-playfair',
+    name: 'PlayfairDisplay-Regular.otf',
+    parentId: 'dl-fonts-folder',
+    kind: 'font',
+    sizeBytes: 284_000,
+    modifiedAt: '2026-11-25 08:54',
+    content: 'OpenType Font (.otf) · Playfair Display Editorial Serif\nReady for 1-click bulk installation to Linux and Adobe Photoshop / Illustrator.',
+  },
+  {
+    id: 'dl-font-inter',
+    name: 'Inter-Variable.ttf',
+    parentId: 'dl-fonts-folder',
+    kind: 'font',
+    sizeBytes: 342_000,
+    modifiedAt: '2026-11-25 08:54',
+    content: 'TrueType Variable Font (.ttf) · Inter UI Sans\nReady for 1-click bulk installation to Linux and Adobe Wine prefixes.',
+  },
+  {
+    id: 'dl-font-noto-tamil',
+    name: 'NotoSansTamil-Regular.ttf',
+    parentId: 'dl-fonts-folder',
+    kind: 'font',
+    sizeBytes: 174_000,
+    modifiedAt: '2026-11-25 08:54',
+    content: 'TrueType Font (.ttf) · Noto Sans Tamil Unicode\nSupports Tamil script rendering across Linux apps and Adobe Wine environments.',
+  },
+  {
     id: 'dl-davinci-deb',
     name: 'aether-vulkan-diagnostics.sh',
     parentId: 'downloads',
@@ -164,6 +235,41 @@ export const INITIAL_FS_NODES: FsNode[] = [
     content: 'SMB 3.1.1 Share (smb://nas.studio.local/projects) · 10GbE throughput verified',
   },
 ];
+
+export function classifyUploadedFile(fileName: string): FsNode['kind'] {
+  const lower = fileName.trim().toLowerCase();
+  if (lower.endsWith('.exe')) return 'exe';
+  if (lower.endsWith('.msi')) return 'msi';
+  if (lower.endsWith('.deb')) return 'deb';
+  if (lower.endsWith('.appimage')) return 'appimage';
+  if (lower.endsWith('.ttf') || lower.endsWith('.otf')) return 'font';
+  if (lower.endsWith('.zip') || lower.endsWith('.tar.gz') || lower.endsWith('.7z')) return 'zip';
+  if (/\.(png|jpe?g|webp|psd|ai|dng|svg|gif)$/i.test(lower)) return 'image';
+  if (/\.(mp4|mov|mkv|webm|avi)$/i.test(lower)) return 'video';
+  if (/\.(sh|py|ts|tsx|js|json|conf|qml|cfg)$/i.test(lower)) return 'code';
+  return 'document';
+}
+
+export function isInstallablePackageKind(kind: FsNode['kind']): boolean {
+  return kind === 'exe' || kind === 'msi' || kind === 'deb' || kind === 'appimage';
+}
+
+export function parseFontFamilyFromFilename(fileName: string): {
+  family: string;
+  format: 'TTF' | 'OTF';
+} {
+  const isOtf = fileName.trim().toLowerCase().endsWith('.otf');
+  const withoutExt = fileName.trim().replace(/\.(ttf|otf)$/i, '');
+  const cleaned = withoutExt
+    .replace(/[-_](regular|bold|semibold|medium|light|italic|variable|vf)$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim();
+  return {
+    family: cleaned || 'Custom Font',
+    format: isOtf ? 'OTF' : 'TTF',
+  };
+}
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '—';

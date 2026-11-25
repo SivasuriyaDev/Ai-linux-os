@@ -28,7 +28,11 @@ function triggerDownload(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-export function OsStudioApp() {
+interface OsStudioAppProps {
+  onCopyToClipboard?: (text: string, source: string) => void;
+}
+
+export function OsStudioApp({ onCopyToClipboard }: OsStudioAppProps) {
   const [category, setCategory] = useState<'All' | OsSourceArtifact['category']>('All');
   const [selectedId, setSelectedId] = useState<string>(OS_SOURCE_ARTIFACTS[1].id);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -42,13 +46,17 @@ export function OsStudioApp() {
     OS_SOURCE_ARTIFACTS.find((a) => a.id === selectedId) ?? OS_SOURCE_ARTIFACTS[0];
 
   const handleCopy = async () => {
+    onCopyToClipboard?.(
+      activeArtifact.content.split('\n').slice(0, 4).join('\n'),
+      `OS Build Studio (${activeArtifact.fileName})`
+    );
     try {
       await navigator.clipboard.writeText(activeArtifact.content);
-      setCopiedId(activeArtifact.id);
-      window.setTimeout(() => setCopiedId(null), 1800);
     } catch {
       // Clipboard API may be unavailable in restricted contexts
     }
+    setCopiedId(activeArtifact.id);
+    window.setTimeout(() => setCopiedId(null), 1800);
   };
 
   const handleDownloadBundle = () => {

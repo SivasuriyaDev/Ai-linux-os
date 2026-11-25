@@ -4,7 +4,12 @@ export type AppId =
   | 'app-manager'
   | 'settings'
   | 'os-installer'
-  | 'os-studio';
+  | 'os-studio'
+  | 'task-manager'
+  | 'terminal'
+  | 'tablet-color'
+  | 'font-manager'
+  | 'snip-recorder';
 
 export type SnapZone =
   | 'none'
@@ -46,6 +51,9 @@ export type FileKind =
   | 'folder'
   | 'exe'
   | 'msi'
+  | 'deb'
+  | 'appimage'
+  | 'font'
   | 'zip'
   | 'image'
   | 'document'
@@ -132,7 +140,8 @@ export interface SoftwarePackage {
 export interface ExeInstallRequest {
   fileName: string;
   filePath: string;
-  format: 'EXE' | 'MSI';
+  format: 'EXE' | 'MSI' | 'Debian (.deb)' | 'AppImage';
+  sizeBytes?: number;
   suggestedAppId?: string;
 }
 
@@ -145,11 +154,76 @@ export interface NotificationItem {
   read: boolean;
 }
 
-export type WallpaperId = 'mica-dark' | 'mica-light' | 'alpine-dusk' | 'obsidian-grid';
+export interface ClipboardItem {
+  id: string;
+  text: string;
+  source: string;
+  kind: 'text' | 'command' | 'color' | 'path';
+  pinned: boolean;
+  timestamp: string;
+}
+
+export interface FontEntry {
+  id: string;
+  family: string;
+  fileName: string;
+  format: 'TTF' | 'OTF';
+  category: 'Sans-Serif' | 'Serif' | 'Monospace' | 'Windows Core';
+  cssFont: string;
+  installedLinux: boolean;
+  syncedWinePrefixes: string[];
+}
+
+export interface ProcessItem {
+  pid: number;
+  name: string;
+  category: 'System' | 'Desktop App' | 'Wine Prefix' | 'Background';
+  cpuPercent: number;
+  ramMb: number;
+  gpuPercent: number;
+  priority: 'High' | 'Normal' | 'Low';
+  killable: boolean;
+  pausedByBoost?: boolean;
+  windowId?: string;
+}
+
+export type ColorProfileId = 'srgb' | 'display-p3' | 'adobe-rgb' | 'rec709';
+
+export type WallpaperId =
+  | 'mica-dark'
+  | 'mica-light'
+  | 'alpine-dusk'
+  | 'obsidian-grid'
+  | 'custom';
+
+export interface HardwareDriverItem {
+  id: string;
+  category: 'Graphics' | 'Display' | 'Audio' | 'Network & Bluetooth' | 'USB & Input';
+  name: string;
+  deviceHardware: string;
+  packageName: string;
+  version: string;
+  status: 'Installed & Active' | 'Needs Auto-Install' | 'Update Available';
+  autoDetected: boolean;
+}
+
+export interface UsbPortDevice {
+  id: string;
+  portLabel: string;
+  standard: 'USB-C 3.2 Gen 2' | 'USB-A 3.2 Gen 1' | 'USB-A 2.0' | 'USB-C PD';
+  maxSpeed: string;
+  connectedDevice: string | null;
+  deviceKind: 'Storage (NTFS)' | 'Pen Tablet' | 'Audio DAC' | 'Input HID' | 'Empty';
+  status: 'Working (OK)' | 'Ready (Empty)' | 'Safely Ejected' | 'Verified';
+  powerDrawMa: number;
+  lastTested?: string;
+}
 
 export interface SystemSettingsState {
   theme: 'dark' | 'light';
   wallpaper: WallpaperId;
+  customWallpaperUrl?: string | null;
+  customWallpaperFit?: 'cover' | 'contain' | 'fill';
   accentColor: 'sky' | 'indigo' | 'emerald' | 'amber';
   transparencyLevel: number; // 0 to 100
   taskbarCentered: boolean;
@@ -159,6 +233,9 @@ export interface SystemSettingsState {
   volume: number;
   brightness: number;
   nightLight: boolean;
+  renderBoost: boolean;
+  doNotDisturb: boolean;
+  activeColorProfile: ColorProfileId;
   powerProfile: 'Performance' | 'Balanced' | 'Power Saver';
   gpuVendor: 'Intel' | 'AMD' | 'NVIDIA';
   resolution: '2560x1440' | '1920x1080' | '3840x2160';

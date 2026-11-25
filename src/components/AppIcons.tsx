@@ -1,10 +1,15 @@
 import {
+  Activity,
+  Camera,
   FolderOpen,
   HardDriveDownload,
   Layers,
   Package,
+  PenTool,
   Settings,
+  Terminal,
   TerminalSquare,
+  Type,
 } from 'lucide-react';
 import type { AppId } from '../os/types';
 
@@ -65,6 +70,36 @@ export function AppIconBadge({
       return (
         <span className={`inline-flex shrink-0 items-center justify-center bg-slate-800 text-sky-300 ring-1 ring-white/15 shadow-sm ${dim}`}>
           <TerminalSquare className={iconDim} />
+        </span>
+      );
+    case 'task-manager':
+      return (
+        <span className={`inline-flex shrink-0 items-center justify-center bg-teal-600 text-white shadow-sm ${dim}`}>
+          <Activity className={iconDim} />
+        </span>
+      );
+    case 'terminal':
+      return (
+        <span className={`inline-flex shrink-0 items-center justify-center bg-zinc-900 text-emerald-400 ring-1 ring-white/15 shadow-sm ${dim}`}>
+          <Terminal className={iconDim} />
+        </span>
+      );
+    case 'tablet-color':
+      return (
+        <span className={`inline-flex shrink-0 items-center justify-center bg-violet-600 text-white shadow-sm ${dim}`}>
+          <PenTool className={iconDim} />
+        </span>
+      );
+    case 'font-manager':
+      return (
+        <span className={`inline-flex shrink-0 items-center justify-center bg-rose-600 text-white shadow-sm ${dim}`}>
+          <Type className={iconDim} />
+        </span>
+      );
+    case 'snip-recorder':
+      return (
+        <span className={`inline-flex shrink-0 items-center justify-center bg-cyan-600 text-white shadow-sm ${dim}`}>
+          <Camera className={iconDim} />
         </span>
       );
   }

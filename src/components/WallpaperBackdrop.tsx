@@ -2,9 +2,37 @@ import type { WallpaperId } from '../os/types';
 
 interface WallpaperBackdropProps {
   wallpaper: WallpaperId;
+  customWallpaperUrl?: string | null;
+  customWallpaperFit?: 'cover' | 'contain' | 'fill';
 }
 
-export function WallpaperBackdrop({ wallpaper }: WallpaperBackdropProps) {
+export function WallpaperBackdrop({
+  wallpaper,
+  customWallpaperUrl,
+  customWallpaperFit = 'cover',
+}: WallpaperBackdropProps) {
+  if (wallpaper === 'custom' && customWallpaperUrl) {
+    const objectFitClass =
+      customWallpaperFit === 'contain'
+        ? 'object-contain'
+        : customWallpaperFit === 'fill'
+          ? 'object-fill'
+          : 'object-cover';
+    return (
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 overflow-hidden bg-slate-950 transition-colors duration-300"
+      >
+        <img
+          src={customWallpaperUrl}
+          alt=""
+          className={`h-full w-full ${objectFitClass}`}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/35 via-transparent to-slate-950/15" />
+      </div>
+    );
+  }
+
   if (wallpaper === 'mica-light') {
     return (
       <div

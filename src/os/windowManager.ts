@@ -43,6 +43,31 @@ export const APP_DEFAULT_CONFIG: Record<
     width: 1040,
     height: 660,
   },
+  'task-manager': {
+    title: 'Task Manager & System Monitor',
+    width: 960,
+    height: 630,
+  },
+  terminal: {
+    title: 'Aether Terminal',
+    width: 860,
+    height: 560,
+  },
+  'tablet-color': {
+    title: 'Pen Tablet & Color Calibration Hub',
+    width: 980,
+    height: 640,
+  },
+  'font-manager': {
+    title: 'Font Manager (Linux + Wine Sync)',
+    width: 940,
+    height: 610,
+  },
+  'snip-recorder': {
+    title: 'Snipping Tool & Screen Recorder',
+    width: 860,
+    height: 590,
+  },
 };
 
 export function clampWindowBounds(

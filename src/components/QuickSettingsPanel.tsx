@@ -1,24 +1,26 @@
 import {
   Bluetooth,
   Eye,
-  Gauge,
   Moon,
   Shield,
   Sun,
   Volume2,
   Wifi,
+  Zap,
 } from 'lucide-react';
 import type { SystemSettingsState } from '../os/types';
 
 interface QuickSettingsPanelProps {
   settings: SystemSettingsState;
   onUpdate: (patch: Partial<SystemSettingsState>) => void;
+  onToggleRenderBoost: () => void;
   onOpenSettings: () => void;
 }
 
 export function QuickSettingsPanel({
   settings,
   onUpdate,
+  onToggleRenderBoost,
   onOpenSettings,
 }: QuickSettingsPanelProps) {
   const toggleTheme = () => {
@@ -30,16 +32,6 @@ export function QuickSettingsPanel({
           ? 'mica-dark'
           : settings.wallpaper;
     onUpdate({ theme: nextTheme, wallpaper: nextWallpaper });
-  };
-
-  const cyclePowerProfile = () => {
-    const order: SystemSettingsState['powerProfile'][] = [
-      'Balanced',
-      'Performance',
-      'Power Saver',
-    ];
-    const idx = order.indexOf(settings.powerProfile);
-    onUpdate({ powerProfile: order[(idx + 1) % order.length] });
   };
 
   return (
@@ -131,11 +123,18 @@ export function QuickSettingsPanel({
 
         <button
           type="button"
-          onClick={cyclePowerProfile}
-          className="flex flex-col items-start gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-left text-slate-700 transition-colors hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          onClick={onToggleRenderBoost}
+          aria-pressed={settings.renderBoost}
+          className={`flex flex-col items-start gap-1.5 rounded-xl border p-2.5 text-left transition-colors ${
+            settings.renderBoost
+              ? 'border-amber-400 bg-amber-500 text-slate-950'
+              : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
+          }`}
         >
-          <Gauge className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-          <span className="truncate text-[11px] font-medium">{settings.powerProfile}</span>
+          <Zap className="h-4 w-4" />
+          <span className="truncate text-[11px] font-medium">
+            {settings.renderBoost ? 'Boost + DND' : 'Render Boost'}
+          </span>
         </button>
 
         <button

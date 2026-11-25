@@ -2,12 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INITIAL_FS_NODES,
+  classifyUploadedFile,
   createFolder,
   deleteNode,
   extractZipArchive,
   getBreadcrumbs,
   getChildren,
+  isInstallablePackageKind,
   moveNode,
+  parseFontFamilyFromFilename,
   renameNode,
   searchFiles,
 } from './fileSystem';
@@ -46,4 +49,21 @@ test('rename, move, search, breadcrumbs, and recursive delete behave determinist
   const deleted = deleteNode(moved, created.created.id);
   assert.equal(deleted.some((n) => n.id === 'doc-arch'), false);
   assert.equal(deleted.some((n) => n.id === created.created.id), false);
+});
+
+test('classifyUploadedFile and parseFontFamilyFromFilename support Windows-simple installers and fonts', () => {
+  assert.equal(classifyUploadedFile('Photoshop_Setup.exe'), 'exe');
+  assert.equal(classifyUploadedFile('Illustrator.msi'), 'msi');
+  assert.equal(classifyUploadedFile('Blender_4.2_amd64.deb'), 'deb');
+  assert.equal(classifyUploadedFile('Krita_5.2.6.AppImage'), 'appimage');
+  assert.equal(classifyUploadedFile('Montserrat-Bold.ttf'), 'font');
+  assert.equal(classifyUploadedFile('PlayfairDisplay-Regular.otf'), 'font');
+
+  assert.equal(isInstallablePackageKind('deb'), true);
+  assert.equal(isInstallablePackageKind('appimage'), true);
+  assert.equal(isInstallablePackageKind('font'), false);
+
+  const parsed = parseFontFamilyFromFilename('PlayfairDisplay-Regular.otf');
+  assert.equal(parsed.family, 'Playfair Display');
+  assert.equal(parsed.format, 'OTF');
 });

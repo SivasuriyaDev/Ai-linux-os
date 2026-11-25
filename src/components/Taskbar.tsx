@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   Bell,
+  BellOff,
+  ClipboardList,
+  Layers2,
   LayoutGrid,
   Search,
   Volume2,
@@ -18,14 +21,18 @@ interface TaskbarProps {
   focusedWindowId: string | null;
   settings: SystemSettingsState;
   unreadNotifications: number;
+  clipboardCount: number;
   startOpen: boolean;
   searchOpen: boolean;
   desktopsOpen: boolean;
+  clipboardOpen: boolean;
   quickSettingsOpen: boolean;
   notificationsOpen: boolean;
   onToggleStart: () => void;
   onToggleSearch: () => void;
   onToggleDesktops: () => void;
+  onToggleAltTab: () => void;
+  onToggleClipboard: () => void;
   onToggleQuickSettings: () => void;
   onToggleNotifications: () => void;
   onAppClick: (appId: AppId) => void;
@@ -35,6 +42,8 @@ const PINNED_APPS: { id: AppId; label: string }[] = [
   { id: 'adobe-manager', label: 'Adobe Compatibility Manager' },
   { id: 'file-manager', label: 'Files' },
   { id: 'app-manager', label: 'Application Manager' },
+  { id: 'task-manager', label: 'Task Manager & System Monitor' },
+  { id: 'terminal', label: 'Aether Terminal' },
   { id: 'settings', label: 'System Settings' },
   { id: 'os-installer', label: 'Install AetherOS' },
   { id: 'os-studio', label: 'OS Architecture & ISO Build Studio' },
@@ -46,14 +55,18 @@ export function Taskbar({
   focusedWindowId,
   settings,
   unreadNotifications,
+  clipboardCount,
   startOpen,
   searchOpen,
   desktopsOpen,
+  clipboardOpen,
   quickSettingsOpen,
   notificationsOpen,
   onToggleStart,
   onToggleSearch,
   onToggleDesktops,
+  onToggleAltTab,
+  onToggleClipboard,
   onToggleQuickSettings,
   onToggleNotifications,
   onAppClick,
@@ -74,8 +87,8 @@ export function Taskbar({
       aria-label="AetherOS Taskbar"
       className="acrylic-panel fixed bottom-0 left-0 right-0 z-50 flex h-[54px] items-center justify-between border-t border-slate-300/70 bg-white/82 px-3 text-slate-900 dark:border-slate-700/70 dark:bg-slate-950/82 dark:text-slate-100"
     >
-      {/* Left Spacer / Desktop Indicator */}
-      <div className="hidden flex-1 items-center gap-2 sm:flex">
+      {/* Left Spacer / Desktop & Window Switcher */}
+      <div className="hidden flex-1 items-center gap-1.5 sm:flex">
         <button
           type="button"
           onClick={onToggleDesktops}
@@ -89,6 +102,17 @@ export function Taskbar({
         >
           <LayoutGrid className="h-3.5 w-3.5" />
           <span>Desktop {activeDesktopId}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onToggleAltTab}
+          aria-label="Open Window Switcher (Alt+Tab)"
+          title="Window Switcher (Alt + Tab)"
+          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-800/80 whitespace-nowrap shrink-0"
+        >
+          <Layers2 className="h-3.5 w-3.5" />
+          <span className="hidden xl:inline">Switch</span>
         </button>
       </div>
 
@@ -165,6 +189,21 @@ export function Taskbar({
       <div className="flex flex-1 items-center justify-end gap-1.5">
         <button
           type="button"
+          onClick={onToggleClipboard}
+          aria-label="Open Clipboard History"
+          aria-expanded={clipboardOpen}
+          title={`Clipboard History (${clipboardCount}) · Alt+V`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-700 transition-colors dark:text-slate-200 ${
+            clipboardOpen
+              ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+              : 'hover:bg-slate-200/70 dark:hover:bg-slate-800/70'
+          }`}
+        >
+          <ClipboardList className="h-3.5 w-3.5" />
+        </button>
+
+        <button
+          type="button"
           onClick={onToggleQuickSettings}
           aria-label="Open Quick Settings"
           aria-expanded={quickSettingsOpen}
@@ -207,8 +246,12 @@ export function Taskbar({
             </div>
           </div>
           <span className="relative flex h-6 w-6 shrink-0 items-center justify-center text-slate-600 dark:text-slate-300">
-            <Bell className="h-3.5 w-3.5" />
-            {unreadNotifications > 0 && (
+            {settings.doNotDisturb ? (
+              <BellOff className="h-3.5 w-3.5 text-amber-500" />
+            ) : (
+              <Bell className="h-3.5 w-3.5" />
+            )}
+            {!settings.doNotDisturb && unreadNotifications > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-sky-600 px-1 text-[9px] font-semibold text-white tabular-nums">
                 {unreadNotifications}
               </span>
