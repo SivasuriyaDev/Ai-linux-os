@@ -1,0 +1,6 @@
+{
+  "name": "AetherOS — Lightweight Linux OS & Adobe Compatibility Workbench",
+  "description": "Custom Debian Stable Minimal Linux operating system architecture with a Windows 11-inspired Qt 6/QML desktop environment, Adobe Creative Cloud Wine/DXVK compatibility manager, graphical installer, and full ISO build scripts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
