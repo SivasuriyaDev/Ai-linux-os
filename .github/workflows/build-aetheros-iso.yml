@@ -172,24 +172,37 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           dpkg --add-architecture i386
           apt-get update
-          apt-get install -y --no-install-recommends -t bookworm-backports linux-image-amd64 || \
-            apt-get install -y --no-install-recommends linux-image-amd64
+          apt-get upgrade -y
+          apt-get install -y --no-install-recommends \
+            zstd linux-image-amd64
           apt-get install -y --no-install-recommends \
             firmware-linux firmware-iwlwifi firmware-amd-graphics firmware-misc-nonfree \
             live-boot initramfs-tools grub-efi-amd64-signed shim-signed grub-pc-bin \
-            plymouth plymouth-themes network-manager bluez pipewire pipewire-pulse \
-            pipewire-jack wireplumber zram-tools nftables apparmor apparmor-utils \
+            plymouth plymouth-themes
+          apt-get install -y --no-install-recommends \
+            polkitd network-manager bluez pipewire pipewire-pulse pipewire-jack \
+            wireplumber zram-tools nftables apparmor apparmor-utils \
             unattended-upgrades ntfs-3g cifs-utils fuse3 flatpak p7zip-full unzip \
-            cryptsetup parted dosfstools mesa-vulkan-drivers mesa-vulkan-drivers:i386 \
+            cryptsetup parted dosfstools
+          apt-get install -y --no-install-recommends \
+            mesa-vulkan-drivers mesa-vulkan-drivers:i386 \
             libvulkan1 libvulkan1:i386 vulkan-tools mesa-va-drivers \
-            intel-media-va-driver-non-free vainfo qt6-base-dev qt6-declarative-dev \
-            qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+            intel-media-va-driver-non-free vainfo
+          apt-get install -y --no-install-recommends \
+            qt6-base-dev qt6-declarative-dev qml6-module-qtquick \
+            qml6-module-qtquick-controls qml6-module-qtquick-layouts \
             qml6-module-qtquick-window xwayland sddm python3 python3-pyqt6 \
-            fonts-noto-core fonts-liberation wine wine64 wine32:i386 winetricks cabextract
+            fonts-noto-core fonts-liberation
+          apt-get install -y --no-install-recommends \
+            wine wine64 wine32:i386 winetricks cabextract
+          update-initramfs -u -k all
           systemctl enable NetworkManager bluetooth nftables apparmor fstrim.timer zramswap || true
           echo "PERCENT=50" > /etc/default/zramswap
           echo "ALGO=lz4" >> /etc/default/zramswap
           echo "aetheros" > /etc/hostname
+          for g in sudo video audio render plugdev; do
+            getent group "${g}" >/dev/null || groupadd "${g}"
+          done
           id -u aether >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,video,audio,render,plugdev aether
           echo "aether:aether" | chpasswd
           echo "aether ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/aether-live
@@ -253,7 +266,7 @@ jobs:
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
           else
-            TAG="aetheros-1.0-lts-$(date +%Y%m%d-%H%M)"
+            TAG="aetheros-1.0-lts-$(date +%Y%m%d-%H%M%S)"
           fi
 
           gh release create "${TAG}" release-assets/* \
