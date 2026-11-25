@@ -80,6 +80,67 @@ function Remove-OldAetherBcdEntries {
   } catch {}
 }
 
+function Mount-AetherIsoDrive {
+  param([string]$Path)
+  $existing = Get-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue
+  $weMounted = $false
+  if (-not ($existing -and $existing.Attached)) {
+    Mount-DiskImage -ImagePath $Path -ErrorAction Stop | Out-Null
+    $weMounted = $true
+  }
+  $isoDrive = $null
+  for ($i = 0; $i -lt 15; $i++) {
+    $img = Get-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue
+    $vol = $img | Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter } | Select-Object -First 1
+    if ($vol -and $vol.DriveLetter) {
+      $candidate = "$($vol.DriveLetter):"
+      if (Test-Path -LiteralPath "$candidate\") {
+        $isoDrive = $candidate
+        break
+      }
+    }
+    Start-Sleep -Milliseconds 800
+  }
+  if (-not $isoDrive) {
+    if ($weMounted) { Dismount-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue | Out-Null }
+    throw "Could not read mounted ISO drive letter for $Path."
+  }
+  return @{ Drive = $isoDrive; WeMounted = $weMounted }
+}
+
+function Find-AetherIsoLiveFiles {
+  param([string]$IsoDrive)
+  $liveDir = "$IsoDrive\live"
+  if (-not (Test-Path -LiteralPath $liveDir)) {
+    $foundDir = Get-ChildItem -LiteralPath "$IsoDrive\" -Directory -Recurse -Depth 2 -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq "live" } | Select-Object -First 1
+    if ($foundDir) { $liveDir = $foundDir.FullName }
+  }
+  if (-not (Test-Path -LiteralPath $liveDir)) {
+    $rootItems = (Get-ChildItem -LiteralPath "$IsoDrive\" -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ', '
+    throw "ISO at $IsoDrive is missing /live directory. Root contents: [$rootItems]"
+  }
+  $files = @(Get-ChildItem -LiteralPath $liveDir -File -Force -ErrorAction SilentlyContinue)
+  $kernel = $files | Where-Object { $_.Name -ieq "vmlinuz" } | Select-Object -First 1
+  if (-not $kernel) { $kernel = $files | Where-Object { $_.Name -imatch '^vmlinuz' } | Select-Object -First 1 }
+
+  $initrd = $files | Where-Object { $_.Name -ieq "initrd.img" } | Select-Object -First 1
+  if (-not $initrd) { $initrd = $files | Where-Object { $_.Name -imatch '^initrd' } | Select-Object -First 1 }
+
+  $squash = $files | Where-Object { $_.Name -ieq "filesystem.squashfs" } | Select-Object -First 1
+  if (-not $squash) {
+    $squash = $files | Where-Object { $_.Name -imatch '\.(squashfs|squ)$' -or ($_.Name -imatch '^filesys' -and $_.Length -gt 10MB) } | Sort-Object Length -Descending | Select-Object -First 1
+  }
+  if (-not $squash) {
+    $squash = $files | Where-Object { $_.Length -gt 100MB } | Sort-Object Length -Descending | Select-Object -First 1
+  }
+
+  if (-not $kernel -or -not $initrd -or -not $squash) {
+    $foundList = ($files | ForEach-Object { "$($_.Name) ($([Math]::Round($_.Length/1MB,1)) MB)" }) -join ', '
+    throw "ISO is missing required boot files in $liveDir (expected vmlinuz, initrd.img, filesystem.squashfs). Found: [$foundList]"
+  }
+  return @{ LiveDir = $liveDir; Kernel = $kernel; Initrd = $initrd; Squash = $squash }
+}
+
 $bl = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
 if ($bl -and $bl.ProtectionStatus -eq "On") {
   throw "BitLocker is enabled on C:. Run 'Suspend-BitLocker -MountPoint C: -RebootCount 2' first."
@@ -102,21 +163,23 @@ if (-not $isUefi) {
   Write-Host "[OK] C:\ has ${freeGB} GB free - staging AetherOS directly into C:\live\..." -ForegroundColor Green
 
   Write-Host "[ISO] Mounting ISO and copying AetherOS live image to C:\live\ (1-2 minutes)..." -ForegroundColor Cyan
-  $mounted = Mount-DiskImage -ImagePath $IsoPath -PassThru
+  $mountInfo = Mount-AetherIsoDrive -Path $IsoPath
   try {
-    Start-Sleep -Seconds 2
-    $isoVol = $mounted | Get-Volume | Select-Object -First 1
-    if (-not $isoVol -or -not $isoVol.DriveLetter) { throw "Could not read mounted ISO drive letter." }
-    $isoDrive = "$($isoVol.DriveLetter):"
-    $isoLiveDir = "$isoDrive\live"
-    if (-not (Test-Path -LiteralPath "$isoLiveDir\vmlinuz") -or -not (Test-Path -LiteralPath "$isoLiveDir\initrd.img") -or -not (Test-Path -LiteralPath "$isoLiveDir\filesystem.squashfs")) {
-      throw "ISO is missing /live/vmlinuz, /live/initrd.img, or /live/filesystem.squashfs."
+    $isoDrive = $mountInfo.Drive
+    $live = Find-AetherIsoLiveFiles -IsoDrive $isoDrive
+    if ($live.Squash.Name -ine "filesystem.squashfs") {
+      Write-Host "[ISO] Detected ISO-9660 8.3 name '$($live.Squash.Name)' -> normalizing to filesystem.squashfs..." -ForegroundColor Yellow
     }
     if (Test-Path -LiteralPath "C:\live") { Remove-Item -LiteralPath "C:\live" -Recurse -Force }
     New-Item -ItemType Directory -Path "C:\live" -Force | Out-Null
-    Copy-Item -Path "$isoLiveDir\*" -Destination "C:\live\" -Recurse -Force
+    Copy-Item -LiteralPath $live.Kernel.FullName -Destination "C:\live\vmlinuz" -Force
+    Copy-Item -LiteralPath $live.Initrd.FullName -Destination "C:\live\initrd.img" -Force
+    Copy-Item -LiteralPath $live.Squash.FullName -Destination "C:\live\filesystem.squashfs" -Force
+    Get-ChildItem -LiteralPath "C:\live" -File -ErrorAction SilentlyContinue | ForEach-Object { $_.IsReadOnly = $false }
   } finally {
-    Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+    if ($mountInfo.WeMounted) {
+      Dismount-DiskImage -ImagePath $IsoPath -ErrorAction SilentlyContinue | Out-Null
+    }
   }
   Write-Host "[OK] AetherOS kernel, initrd, and SquashFS copied to C:\live\." -ForegroundColor Green
 
@@ -286,15 +349,20 @@ if ($existingStage) {
 }
 
 Write-Host "[ISO] Mounting ISO and copying AetherOS live image to $stageDrive (1-2 minutes)..." -ForegroundColor Cyan
-$mounted = Mount-DiskImage -ImagePath $IsoPath -PassThru
+$mountInfo = Mount-AetherIsoDrive -Path $IsoPath
 try {
-  Start-Sleep -Seconds 2
-  $isoVol = $mounted | Get-Volume | Select-Object -First 1
-  if (-not $isoVol -or -not $isoVol.DriveLetter) { throw "Could not read mounted ISO drive letter." }
-  $isoDrive = "$($isoVol.DriveLetter):"
+  $isoDrive = $mountInfo.Drive
+  $live = Find-AetherIsoLiveFiles -IsoDrive $isoDrive
   Copy-Item -Path "$isoDrive\*" -Destination "$stageDrive\" -Recurse -Force
+  Get-ChildItem -LiteralPath "$stageDrive\live" -File -ErrorAction SilentlyContinue | ForEach-Object { $_.IsReadOnly = $false }
+  if (-not (Test-Path -LiteralPath "$stageDrive\live\filesystem.squashfs")) {
+    $copiedSquash = Get-ChildItem -LiteralPath "$stageDrive\live" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -imatch '\.(squashfs|squ)$' -or ($_.Name -imatch '^filesys' -and $_.Length -gt 10MB) -or $_.Length -gt 100MB } | Sort-Object Length -Descending | Select-Object -First 1
+    if ($copiedSquash) { Rename-Item -LiteralPath $copiedSquash.FullName -NewName "filesystem.squashfs" -Force }
+  }
 } finally {
-  Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+  if ($mountInfo.WeMounted) {
+    Dismount-DiskImage -ImagePath $IsoPath -ErrorAction SilentlyContinue | Out-Null
+  }
 }
 Write-Host "[OK] AetherOS boot files copied to $stageDrive." -ForegroundColor Green
 

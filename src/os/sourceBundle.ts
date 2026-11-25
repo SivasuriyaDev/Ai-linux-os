@@ -1,7 +1,5 @@
 import archSpec from '../../os-src/arch/system-architecture.md?raw';
-import buildIsoSh from '../../os-src/build/build-iso.sh?raw';
 import githubActionsIsoYml from '../../.github/workflows/build-aetheros-iso.yml?raw';
-import grubCfg from '../../os-src/build/grub.cfg?raw';
 import desktopShellQml from '../../os-src/desktop/qml/DesktopShell.qml?raw';
 import taskbarQml from '../../os-src/desktop/qml/Taskbar.qml?raw';
 import zeroTerminalHandlersSh from '../../os-src/desktop/aether-zero-terminal-handlers.sh?raw';
@@ -15,6 +13,34 @@ import nftablesConf from '../../os-src/security/nftables.conf?raw';
 import testQemuSh from '../../os-src/testing/test-qemu.sh?raw';
 import compatMatrixMd from '../../os-src/docs/COMPATIBILITY_MATRIX.md?raw';
 import troubleshootingMd from '../../os-src/docs/TROUBLESHOOTING.md?raw';
+
+function extractWorkflowHeredoc(yaml: string, startMarker: string, endMarker: string, fallback: string): string {
+  const startIdx = yaml.indexOf(startMarker);
+  if (startIdx < 0) return fallback;
+  const afterStart = yaml.indexOf('\n', startIdx);
+  if (afterStart < 0) return fallback;
+  const endIdx = yaml.indexOf(`\n          ${endMarker}`, afterStart);
+  if (endIdx < 0) return fallback;
+  return yaml
+    .slice(afterStart + 1, endIdx)
+    .split('\n')
+    .map((line) => line.replace(/^          /, ''))
+    .join('\n') + '\n';
+}
+
+const buildIsoSh = extractWorkflowHeredoc(
+  githubActionsIsoYml,
+  "cat <<'ISO_EOF' > aetheros-src/build/build-iso.sh",
+  'ISO_EOF',
+  '#!/usr/bin/env bash\n# See .github/workflows/build-aetheros-iso.yml for full build script\n'
+);
+
+const grubCfg = extractWorkflowHeredoc(
+  githubActionsIsoYml,
+  "cat <<'GRUB_EOF' > aetheros-src/build/grub.cfg",
+  'GRUB_EOF',
+  'set default=0\nset timeout=5\n'
+);
 
 export interface OsSourceArtifact {
   id: string;

@@ -219,21 +219,74 @@ jobs:
           powercfg /h off | Out-Null
           Write-Host "[OK] Disabled Windows Fast Startup (hiberfil.sys cleared)." -ForegroundColor Green
 
+          function Mount-AetherIsoDrive {
+            param([string]$Path)
+            $existing = Get-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue
+            $weMounted = $false
+            if (-not ($existing -and $existing.Attached)) {
+              Mount-DiskImage -ImagePath $Path -ErrorAction Stop | Out-Null
+              $weMounted = $true
+            }
+            $isoDrive = $null
+            for ($i = 0; $i -lt 15; $i++) {
+              $img = Get-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue
+              $vol = $img | Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter } | Select-Object -First 1
+              if ($vol -and $vol.DriveLetter) {
+                $candidate = "$($vol.DriveLetter):"
+                if (Test-Path -LiteralPath "$candidate\") { $isoDrive = $candidate; break }
+              }
+              Start-Sleep -Milliseconds 800
+            }
+            if (-not $isoDrive) {
+              if ($weMounted) { Dismount-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue | Out-Null }
+              throw "Could not read mounted ISO drive letter for $Path."
+            }
+            return @{ Drive = $isoDrive; WeMounted = $weMounted }
+          }
+
+          function Find-AetherIsoLiveFiles {
+            param([string]$IsoDrive)
+            $liveDir = "$IsoDrive\live"
+            if (-not (Test-Path -LiteralPath $liveDir)) {
+              $foundDir = Get-ChildItem -LiteralPath "$IsoDrive\" -Directory -Recurse -Depth 2 -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq "live" } | Select-Object -First 1
+              if ($foundDir) { $liveDir = $foundDir.FullName }
+            }
+            if (-not (Test-Path -LiteralPath $liveDir)) {
+              $rootItems = (Get-ChildItem -LiteralPath "$IsoDrive\" -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ', '
+              throw "ISO at $IsoDrive is missing /live directory. Root contents: [$rootItems]"
+            }
+            $files = @(Get-ChildItem -LiteralPath $liveDir -File -Force -ErrorAction SilentlyContinue)
+            $kernel = $files | Where-Object { $_.Name -ieq "vmlinuz" } | Select-Object -First 1
+            if (-not $kernel) { $kernel = $files | Where-Object { $_.Name -imatch '^vmlinuz' } | Select-Object -First 1 }
+            $initrd = $files | Where-Object { $_.Name -ieq "initrd.img" } | Select-Object -First 1
+            if (-not $initrd) { $initrd = $files | Where-Object { $_.Name -imatch '^initrd' } | Select-Object -First 1 }
+            $squash = $files | Where-Object { $_.Name -ieq "filesystem.squashfs" } | Select-Object -First 1
+            if (-not $squash) { $squash = $files | Where-Object { $_.Name -imatch '\.(squashfs|squ)$' -or ($_.Name -imatch '^filesys' -and $_.Length -gt 10MB) } | Sort-Object Length -Descending | Select-Object -First 1 }
+            if (-not $squash) { $squash = $files | Where-Object { $_.Length -gt 100MB } | Sort-Object Length -Descending | Select-Object -First 1 }
+            if (-not $kernel -or -not $initrd -or -not $squash) {
+              $foundList = ($files | ForEach-Object { "$($_.Name) ($([Math]::Round($_.Length/1MB,1)) MB)" }) -join ', '
+              throw "ISO is missing required boot files in $liveDir. Found: [$foundList]"
+            }
+            return @{ LiveDir = $liveDir; Kernel = $kernel; Initrd = $initrd; Squash = $squash }
+          }
+
           if (-not $isUefi) {
             Write-Host "[MODE] Legacy BIOS No-Partition Mode activated (works even with 4/4 MBR partitions)." -ForegroundColor Cyan
             Restore-CDriveUnallocated
             $cVol = Get-Volume -DriveLetter C
             if ($cVol.SizeRemaining -lt ([int64]2500 * 1MB)) { throw "Need at least 2.5 GB free on C:\." }
-            $mounted = Mount-DiskImage -ImagePath $IsoPath -PassThru
+            $mountInfo = Mount-AetherIsoDrive -Path $IsoPath
             try {
-              Start-Sleep -Seconds 2
-              $isoVol = $mounted | Get-Volume | Select-Object -First 1
-              $isoDrive = "$($isoVol.DriveLetter):"
+              $isoDrive = $mountInfo.Drive
+              $live = Find-AetherIsoLiveFiles -IsoDrive $isoDrive
               if (Test-Path -LiteralPath "C:\live") { Remove-Item -LiteralPath "C:\live" -Recurse -Force }
               New-Item -ItemType Directory -Path "C:\live" -Force | Out-Null
-              Copy-Item -Path "$isoDrive\live\*" -Destination "C:\live\" -Recurse -Force
+              Copy-Item -LiteralPath $live.Kernel.FullName -Destination "C:\live\vmlinuz" -Force
+              Copy-Item -LiteralPath $live.Initrd.FullName -Destination "C:\live\initrd.img" -Force
+              Copy-Item -LiteralPath $live.Squash.FullName -Destination "C:\live\filesystem.squashfs" -Force
+              Get-ChildItem -LiteralPath "C:\live" -File -ErrorAction SilentlyContinue | ForEach-Object { $_.IsReadOnly = $false }
             } finally {
-              Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+              if ($mountInfo.WeMounted) { Dismount-DiskImage -ImagePath $IsoPath -ErrorAction SilentlyContinue | Out-Null }
             }
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $tmpG4d = Join-Path $env:TEMP ("aether-g4d-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -346,15 +399,18 @@ jobs:
           }
 
           Write-Host "[ISO] Mounting ISO and copying AetherOS live image to $stageDrive (1-2 minutes)..." -ForegroundColor Cyan
-          $mounted = Mount-DiskImage -ImagePath $IsoPath -PassThru
+          $mountInfo = Mount-AetherIsoDrive -Path $IsoPath
           try {
-            Start-Sleep -Seconds 2
-            $isoVol = $mounted | Get-Volume | Select-Object -First 1
-            if (-not $isoVol -or -not $isoVol.DriveLetter) { throw "Could not read mounted ISO drive letter." }
-            $isoDrive = "$($isoVol.DriveLetter):"
+            $isoDrive = $mountInfo.Drive
+            $live = Find-AetherIsoLiveFiles -IsoDrive $isoDrive
             Copy-Item -Path "$isoDrive\*" -Destination "$stageDrive\" -Recurse -Force
+            Get-ChildItem -LiteralPath "$stageDrive\live" -File -ErrorAction SilentlyContinue | ForEach-Object { $_.IsReadOnly = $false }
+            if (-not (Test-Path -LiteralPath "$stageDrive\live\filesystem.squashfs")) {
+              $copiedSquash = Get-ChildItem -LiteralPath "$stageDrive\live" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -imatch '\.(squashfs|squ)$' -or ($_.Name -imatch '^filesys' -and $_.Length -gt 10MB) -or $_.Length -gt 100MB } | Sort-Object Length -Descending | Select-Object -First 1
+              if ($copiedSquash) { Rename-Item -LiteralPath $copiedSquash.FullName -NewName "filesystem.squashfs" -Force }
+            }
           } finally {
-            Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+            if ($mountInfo.WeMounted) { Dismount-DiskImage -ImagePath $IsoPath -ErrorAction SilentlyContinue | Out-Null }
           }
           Write-Host "[OK] AetherOS boot files copied to $stageDrive." -ForegroundColor Green
 
@@ -436,16 +492,24 @@ jobs:
             libvulkan1 libvulkan1:i386 vulkan-tools mesa-va-drivers \
             intel-media-va-driver-non-free vainfo
           apt-get install -y --no-install-recommends \
+            xserver-xorg xserver-xorg-core xserver-xorg-video-all \
+            xserver-xorg-input-all xserver-xorg-input-libinput xinit dbus-x11 \
+            xfce4 xfce4-terminal thunar gvfs udisks2 policykit-1-gnome \
+            network-manager-gnome pavucontrol arc-theme adwaita-icon-theme \
+            sddm sddm-theme-debian-maui qml-module-qtquick2 \
+            qml-module-qtquick-window2 qml-module-qtquick-controls \
+            qml-module-qtquick-layouts \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick \
             qml6-module-qtquick-controls qml6-module-qtquick-layouts \
-            qml6-module-qtquick-window xwayland sddm python3 python3-pyqt6 \
+            qml6-module-qtquick-window xwayland python3 python3-pyqt6 \
             fonts-noto-core fonts-liberation
           apt-get install -y --no-install-recommends \
             wine wine64 wine32:i386 winetricks cabextract
           grep -qxF 'ntfs3' /etc/initramfs-tools/modules || echo 'ntfs3' >> /etc/initramfs-tools/modules
           grep -qxF 'fuse' /etc/initramfs-tools/modules || echo 'fuse' >> /etc/initramfs-tools/modules
           update-initramfs -u -k all
-          systemctl enable NetworkManager bluetooth nftables apparmor fstrim.timer zramswap || true
+          systemctl set-default graphical.target || true
+          systemctl enable NetworkManager bluetooth nftables apparmor fstrim.timer zramswap sddm || true
           echo "PERCENT=50" > /etc/default/zramswap
           echo "ALGO=lz4" >> /etc/default/zramswap
           echo "aetheros" > /etc/hostname
@@ -455,11 +519,48 @@ jobs:
           id -u aether >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,video,audio,render,plugdev aether
           echo "aether:aether" | chpasswd
           echo "aether ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/aether-live
+          mkdir -p /etc/sddm.conf.d /home/aether/Desktop
+          cat > /etc/sddm.conf <<'SDDM_EOF'
+          [Autologin]
+          User=aether
+          Session=xfce.desktop
+          Relogin=false
+
+          [Theme]
+          Current=debian-maui
+          SDDM_EOF
+          cp /etc/sddm.conf /etc/sddm.conf.d/aetheros-autologin.conf
+          cat > /home/aether/Desktop/Terminal.desktop <<'DESK_EOF'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Aether Terminal
+          Exec=xfce4-terminal
+          Icon=utilities-terminal
+          Terminal=false
+          DESK_EOF
+          cat > /home/aether/Desktop/Files.desktop <<'DESK_EOF'
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Files
+          Exec=thunar
+          Icon=system-file-manager
+          Terminal=false
+          DESK_EOF
+          chmod +x /home/aether/Desktop/*.desktop
+          chown -R aether:aether /home/aether
+          test -f /usr/share/xsessions/xfce.desktop
+          command -v Xorg >/dev/null
           apt-get clean
           rm -rf /var/lib/apt/lists/* /tmp/* /usr/share/doc/* /usr/share/man/*
           CHROOT_EOF
 
           [[ -f ../security/nftables.conf ]] && install -m 0644 ../security/nftables.conf "${CHROOT_DIR}/etc/nftables.conf"
+          mkdir -p "${CHROOT_DIR}/usr/local/share/aetheros"
+          for d in adobe-manager arch desktop docs drivers installer security storage; do
+            [[ -d "../${d}" ]] && cp -r "../${d}" "${CHROOT_DIR}/usr/local/share/aetheros/"
+          done
           VMLINUZ_PATH="$(ls -1t "${CHROOT_DIR}"/boot/vmlinuz-* | head -n 1)"
           INITRD_PATH="$(ls -1t "${CHROOT_DIR}"/boot/initrd.img-* | head -n 1)"
           cp -L "${VMLINUZ_PATH}" "${ISO_DIR}/live/vmlinuz"
@@ -472,7 +573,9 @@ jobs:
           mkdir -p "${ISO_DIR}/EFI/BOOT"
           grub-mkstandalone -O x86_64-efi -o "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
             "boot/grub/grub.cfg=${ISO_DIR}/boot/grub/grub.cfg" || true
-          grub-mkrescue -o "${OUTPUT_ISO}" "${ISO_DIR}" -- -volid "AETHEROS_1_0_LTS"
+          grub-mkrescue -o "${OUTPUT_ISO}" "${ISO_DIR}" -- \
+            -volid "AETHEROS_1_0_LTS" \
+            -J -joliet-long -iso-level 3
           ls -lh "${OUTPUT_ISO}"
           ISO_EOF
             sed -i 's/^          //' aetheros-src/build/grub.cfg aetheros-src/security/nftables.conf aetheros-src/installer/Install-AetherOS-DoubleClick.bat aetheros-src/installer/AetherOS-Windows-NoUSB-Installer.ps1 aetheros-src/build/build-iso.sh
