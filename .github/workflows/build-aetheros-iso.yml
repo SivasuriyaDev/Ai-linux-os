@@ -1,0 +1,123 @@
+name: Build AetherOS Bootable ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'GitHub Release tag (leave blank to auto-generate timestamp tag)'
+        required: false
+        default: ''
+      publish_release:
+        description: 'Publish ISO + Windows Double-Click Installer to GitHub Releases'
+        type: boolean
+        default: true
+  push:
+    paths:
+      - 'os-src/**'
+      - 'aetheros-1.0-lts-source-bundle.sh'
+      - '.github/workflows/build-aetheros-iso.yml'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-iso:
+    name: Build AetherOS 1.0 LTS (x86_64 UEFI + BIOS ISO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free GitHub runner disk space for Debian rootfs + SquashFS
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: Install Debian ISO build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            grub-common \
+            mtools \
+            dosfstools \
+            shim-signed \
+            grub-efi-amd64-signed
+
+      - name: Prepare AetherOS source tree
+        id: prep
+        run: |
+          if [[ -f "os-src/build/build-iso.sh" ]]; then
+            echo "BUILD_ROOT=os-src" >> "$GITHUB_OUTPUT"
+          elif [[ -f "aetheros-1.0-lts-source-bundle.sh" ]]; then
+            bash aetheros-1.0-lts-source-bundle.sh
+            echo "BUILD_ROOT=aetheros-src" >> "$GITHUB_OUTPUT"
+          else
+            echo "Error: Neither os-src/build/build-iso.sh nor aetheros-1.0-lts-source-bundle.sh found." >&2
+            exit 1
+          fi
+
+      - name: Compile Bootable AetherOS ISO (Debian Bookworm Minimal + Linux LTS)
+        run: |
+          cd "${{ steps.prep.outputs.BUILD_ROOT }}/build"
+          chmod +x ./build-iso.sh
+          sudo ./build-iso.sh
+          sha256sum aetheros-*.iso > SHA256SUMS.txt
+          ls -lh aetheros-*.iso SHA256SUMS.txt
+
+      - name: Collect release assets (ISO + Checksum + Windows Double-Click Setup)
+        run: |
+          mkdir -p release-assets
+          cp "${{ steps.prep.outputs.BUILD_ROOT }}"/build/aetheros-*.iso release-assets/
+          cp "${{ steps.prep.outputs.BUILD_ROOT }}"/build/SHA256SUMS.txt release-assets/
+          if [[ -f "${{ steps.prep.outputs.BUILD_ROOT }}/installer/Install-AetherOS-DoubleClick.bat" ]]; then
+            cp "${{ steps.prep.outputs.BUILD_ROOT }}/installer/Install-AetherOS-DoubleClick.bat" release-assets/
+          fi
+          if [[ -f "${{ steps.prep.outputs.BUILD_ROOT }}/installer/AetherOS-Windows-NoUSB-Installer.ps1" ]]; then
+            cp "${{ steps.prep.outputs.BUILD_ROOT }}/installer/AetherOS-Windows-NoUSB-Installer.ps1" release-assets/
+          fi
+          ls -lh release-assets/
+
+      - name: Upload ISO as GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetheros-1.0-lts-iso
+          path: release-assets/*
+          retention-days: 14
+
+      - name: Determine Release Tag
+        id: tag
+        if: ${{ inputs.publish_release != false }}
+        run: |
+          if [[ -n "${{ inputs.release_tag }}" ]]; then
+            TAG="${{ inputs.release_tag }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="aetheros-1.0-lts-$(date +%Y%m%d-%H%M)"
+          fi
+          echo "value=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Bootable ISO to GitHub Releases
+        if: ${{ inputs.publish_release != false }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: "AetherOS 1.0 LTS (${{ steps.tag.outputs.value }})"
+          body: |
+            ## AetherOS 1.0 LTS — Automatic Cloud ISO Build
+
+            - **Base**: Debian 12 Bookworm Minimal + Backports Linux LTS Kernel (`x86_64`)
+            - **Boot Support**: Hybrid UEFI (Secure Boot `shim-signed`) + Legacy BIOS
+            - **No-Pendrive Windows Install**: Download `Install-AetherOS-DoubleClick.bat` + `AetherOS-Windows-NoUSB-Installer.ps1` into one folder and double-click the `.bat` file on Windows 10/11.
+            - **Verify Integrity**: Compare the downloaded ISO against `SHA256SUMS.txt`.
+          files: release-assets/*

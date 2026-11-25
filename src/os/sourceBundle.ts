@@ -1,5 +1,6 @@
 import archSpec from '../../os-src/arch/system-architecture.md?raw';
 import buildIsoSh from '../../os-src/build/build-iso.sh?raw';
+import githubActionsIsoYml from '../../.github/workflows/build-aetheros-iso.yml?raw';
 import grubCfg from '../../os-src/build/grub.cfg?raw';
 import desktopShellQml from '../../os-src/desktop/qml/DesktopShell.qml?raw';
 import taskbarQml from '../../os-src/desktop/qml/Taskbar.qml?raw';
@@ -43,6 +44,15 @@ export const OS_SOURCE_ARTIFACTS: OsSourceArtifact[] = [
     language: 'bash',
     summary: 'Reproducible Debian Bookworm debootstrap, Linux LTS kernel, SquashFS (zstd), and hybrid UEFI/BIOS GRUB2 ISO builder.',
     content: buildIsoSh,
+  },
+  {
+    id: 'github-actions-iso',
+    path: '.github/workflows/build-aetheros-iso.yml',
+    fileName: 'build-aetheros-iso.yml',
+    category: 'ISO Build & Boot',
+    language: 'conf',
+    summary: 'Automatic GitHub Actions Cloud ISO Builder: builds bootable x86_64 ISO on ubuntu-latest and publishes ISO + SHA256 + Windows .bat setup to GitHub Releases.',
+    content: githubActionsIsoYml,
   },
   {
     id: 'grub-cfg',

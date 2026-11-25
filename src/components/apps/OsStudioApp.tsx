@@ -1,5 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Check, Copy, Download, FileCode2, FolderArchive, Terminal } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Download,
+  FileCode2,
+  FolderArchive,
+  GitBranch,
+  Terminal,
+} from 'lucide-react';
 import {
   OS_SOURCE_ARTIFACTS,
   buildSelfExtractingBundleScript,
@@ -64,6 +72,13 @@ export function OsStudioApp({ onCopyToClipboard }: OsStudioAppProps) {
     triggerDownload('aetheros-1.0-lts-source-bundle.sh', script);
   };
 
+  const handleDownloadGithubWorkflow = () => {
+    const workflow = OS_SOURCE_ARTIFACTS.find((a) => a.id === 'github-actions-iso');
+    if (!workflow) return;
+    setSelectedId(workflow.id);
+    triggerDownload('build-aetheros-iso.yml', workflow.content);
+  };
+
   return (
     <div className="flex h-full flex-col bg-slate-50/70 text-slate-900 dark:bg-slate-950/60 dark:text-slate-100">
       {/* Header */}
@@ -73,27 +88,42 @@ export function OsStudioApp({ onCopyToClipboard }: OsStudioAppProps) {
             OS Architecture &amp; ISO Build Studio
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Real Debian Stable Minimal source tree (/os-src/) · Qt 6 QML · Python Adobe Manager · GRUB2 · QEMU Harness
+            Debian Stable Minimal source tree (/os-src/) · Automatic GitHub Actions Cloud ISO Builder · GRUB2 · QEMU
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleDownloadBundle}
-          className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-sky-500 whitespace-nowrap shrink-0"
-        >
-          <FolderArchive className="h-3.5 w-3.5" />
-          <span>Download Complete Build Bundle (.sh)</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleDownloadGithubWorkflow}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 whitespace-nowrap"
+          >
+            <GitBranch className="h-3.5 w-3.5 text-emerald-500" />
+            <span>GitHub Action ISO (.yml)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadBundle}
+            className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-sky-500 whitespace-nowrap"
+          >
+            <FolderArchive className="h-3.5 w-3.5" />
+            <span>Download Build Bundle (.sh)</span>
+          </button>
+        </div>
       </div>
 
-      {/* Honest Host Build Note */}
+      {/* Honest Host & GitHub Cloud Build Note */}
       <div className="flex items-center gap-2 border-b border-slate-200/80 bg-white/75 px-5 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
         <Terminal className="h-4 w-4 shrink-0 text-sky-500" />
         <span>
-          To compile the bootable x86_64 ISO image on a real Debian/Ubuntu host with root &amp; KVM, download the bundle and run{' '}
+          <strong className="font-semibold text-slate-900 dark:text-white">Auto GitHub ISO Build:</strong> Push to GitHub and click{' '}
+          <code className="font-mono text-emerald-600 dark:text-emerald-400">
+            Actions → Build AetherOS Bootable ISO → Run workflow
+          </code>{' '}
+          to auto-publish the bootable <code className="font-mono">.iso</code> to Releases — or build locally via{' '}
           <code className="font-mono text-sky-700 dark:text-sky-300">
-            bash aetheros-1.0-lts-source-bundle.sh &amp;&amp; cd aetheros-src/build &amp;&amp; sudo ./build-iso.sh
+            sudo ./build-iso.sh
           </code>
           .
         </span>
